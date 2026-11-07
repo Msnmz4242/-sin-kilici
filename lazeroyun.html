@@ -139,64 +139,42 @@ function startController(){
   const st = t => $('cStatus').textContent = t;
   let peer = null, conn = null, seq = 0, qCal = null, lastQ = null, sensorsOn = false;
 
-  // Gönder: [sıra, kuaterniyon(4), açısal hız(3)]  -> tablet arada tahmin yapabilsin
-  function onQuat(q, w){
+  function onQuat(q){
     lastQ = q;
     if (!qCal) qCal = q;
     if (!conn || !conn.open) return;
-    const r = qmul(qconj(qCal), q), f = v => Math.round(v * 10000) / 10000;
-    w = w || [0, 0, 0];
-    conn.send([++seq, f(r[0]), f(r[1]), f(r[2]), f(r[3]), f(w[0]), f(w[1]), f(w[2])]);
+    const r = qmul(qconj(qCal), q);
+    conn.send([++seq, +r[0].toFixed(4), +r[1].toFixed(4), +r[2].toFixed(4), +r[3].toFixed(4)]);
   }
 
-  // --- Ana yol: jiroskopu kendimiz entegre ediyoruz (pusula yok -> takılma yok) ---
-  let qf = null, qTilt = null, lastT = 0, gyroOK = false;
-  addEventListener('deviceorientation', e => {
-    if (e.alpha == null) return;
-    qTilt = eulerToQuat(e.alpha, e.beta, e.gamma);   // sadece eğim düzeltmesi için
-    if (!gyroOK && !rosOK) onQuat(qTilt, null);       // jiroskop yoksa yedek yol
-  });
-  addEventListener('devicemotion', e => {
-    const rr = e.rotationRate;
-    if (!rr || rr.alpha == null) return;
-    const now = performance.now();
-    let dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
-    if (dt > 0.1) dt = 0.1;
-    if (!qf){ qf = qTilt ? qTilt.slice() : [0, 0, 0, 1]; }
-    if (!gyroOK){ gyroOK = true; $('cSensor').textContent = 'sensör: jiroskop (pürüzsüz mod)'; }
-    const D = Math.PI / 180, w = [rr.beta * D, rr.gamma * D, rr.alpha * D]; // x, y, z (cihaz ekseni)
-    const h = dt / 2;
-    qf = qnorm(qmul(qf, [w[0] * h, w[1] * h, w[2] * h, 1]));
-    if (qTilt){ // yavaşça yerçekimine hizala (eğim kaymasını önler, sağ-sol dönüşe dokunmaz)
-      const upDev = qrot(qconj(qTilt), [0, 0, 1]);
-      const g = qrot(qf, upDev), k = 0.02;
-      qf = qnorm(qmul([g[1] * k / 2, -g[0] * k / 2, 0, 1], qf));
-    }
-    onQuat(qf, w);
-  });
+  function useEuler(){
+    $('cSensor').textContent = 'sensör: deviceorientation';
+    addEventListener('deviceorientation', e => {
+      if (e.alpha == null) return;
+      onQuat(eulerToQuat(e.alpha, e.beta, e.gamma));
+    });
+  }
 
-  // --- Yedek: RelativeOrientationSensor (jiroskop olayı gelmezse) ---
-  let rosOK = false;
   function startSensors(){
     if (sensorsOn) return; sensorsOn = true;
-    setTimeout(() => {
-      if (gyroOK || !('RelativeOrientationSensor' in window)) { if (!gyroOK) $('cSensor').textContent = 'sensör: deviceorientation'; return; }
+    if ('RelativeOrientationSensor' in window){
       try{
+        let failed = false;
         const s = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
-        s.addEventListener('reading', () => { if (!gyroOK){ rosOK = true; onQuat(s.quaternion, null); } });
+        s.addEventListener('reading', () => { if (!failed) onQuat(s.quaternion); });
+        s.addEventListener('error', () => { if (!failed){ failed = true; useEuler(); } });
         s.start();
-        $('cSensor').textContent = 'sensör: yön sensörü';
+        $('cSensor').textContent = 'sensör: jiroskop (hızlı mod)';
+        return;
       }catch(e){}
-    }, 600);
+    }
+    useEuler();
   }
 
   async function askSensor(){
     try{
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
         await DeviceOrientationEvent.requestPermission();
-      }
-      if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission){
-        await DeviceMotionEvent.requestPermission();
       }
     }catch(e){}
     startSensors();
