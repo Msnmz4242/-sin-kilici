@@ -288,9 +288,20 @@ async function startDisplay(){
   // ---------- Kılıç ----------
   const HILT = new THREE.Vector3(0, -0.8, -1.15), BLADE = 1.3, UP = new THREE.Vector3(0, 1, 0);
   const saber = new THREE.Group(); saber.position.copy(HILT); scene.add(saber);
-  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.042, 0.3, 16),
-    new THREE.MeshStandardMaterial({ color: 0x4a5160, metalness: .7, roughness: .35 }));
-  hilt.position.y = -0.15; saber.add(hilt);
+  { // sap: kabza, kavrama halkaları, düğme, yayıcı ağız
+    const metal = new THREE.MeshStandardMaterial({ color: 0xb8bec9, metalness: .9, roughness: .25 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x23262d, metalness: .4, roughness: .6 });
+    const red = new THREE.MeshStandardMaterial({ color: 0xd8202a, emissive: 0x600008, roughness: .4 });
+    const part = (geo, mat, y, x = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); saber.add(m); return m; };
+    part(new THREE.CylinderGeometry(0.034, 0.034, 0.32, 20), metal, -0.17);          // gövde
+    for (let i = 0; i < 7; i++) part(new THREE.CylinderGeometry(0.038, 0.038, 0.018, 20), dark, -0.29 + i * 0.03); // kavrama
+    part(new THREE.CylinderGeometry(0.03, 0.04, 0.04, 20), metal, -0.35);           // kabza
+    part(new THREE.CylinderGeometry(0.02, 0.03, 0.015, 20), dark, -0.377);
+    part(new THREE.CylinderGeometry(0.048, 0.036, 0.06, 20), metal, -0.02);          // yayıcı
+    part(new THREE.CylinderGeometry(0.03, 0.03, 0.012, 20), dark, 0.012);
+    const btn = part(new THREE.BoxGeometry(0.018, 0.03, 0.014), red, -0.08, 0, 0.036); // düğme
+    part(new THREE.BoxGeometry(0.012, 0.09, 0.01), dark, -0.12, 0.034, 0);          // yan panel
+  }
   const add = (r, op) => {
     const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, BLADE, 16),
       new THREE.MeshBasicMaterial({ color: op ? 0x1a6dff : 0xa8dcff, transparent: !!op, opacity: op || 1, depthWrite: !op }));
@@ -433,19 +444,40 @@ async function startDisplay(){
   const level = () => 1 + Math.floor(score / 250);
   const boltSpeed = () => 7 + level() * 0.6;
 
-  const droneGeo = new THREE.SphereGeometry(0.35, 20, 16), ringGeo = new THREE.TorusGeometry(0.5, 0.04, 8, 32), eyeGeo = new THREE.SphereGeometry(0.1, 12, 10);
-  const droneMat = new THREE.MeshStandardMaterial({ color: 0x2b303a, metalness: .6, roughness: .4 });
-  const ringMat = new THREE.MeshStandardMaterial({ color: 0x6a7590, metalness: .6, roughness: .4 });
+  const droneGeo = new THREE.SphereGeometry(0.32, 28, 20), eyeGeo = new THREE.SphereGeometry(0.075, 16, 12);
+  const bandGeo = new THREE.TorusGeometry(0.325, 0.025, 10, 40), lensRimGeo = new THREE.TorusGeometry(0.1, 0.022, 10, 28);
+  const hoodGeo = new THREE.CylinderGeometry(0.12, 0.13, 0.08, 24, 1, true);
+  const armGeo = new THREE.BoxGeometry(0.42, 0.05, 0.1), podGeo = new THREE.CylinderGeometry(0.085, 0.07, 0.16, 20);
+  const rotorGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.01, 24), barrelGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.22, 12);
+  const antGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.22, 6), tipGeo = new THREE.SphereGeometry(0.02, 8, 6);
+  const thrGeo = new THREE.CylinderGeometry(0.06, 0.09, 0.08, 20);
+  const droneMat = new THREE.MeshStandardMaterial({ color: 0xe9ecf1, metalness: .2, roughness: .45 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b303a, metalness: .6, roughness: .4 });
+  const rotorMat = new THREE.MeshBasicMaterial({ color: 0x2b303a, transparent: true, opacity: .25, depthWrite: false });
+  const thrMat = new THREE.MeshBasicMaterial({ color: 0x5fb4ff });
+  const ringMat = darkMat;
   function spawnDrone(){
-    const g = new THREE.Group();
-    const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = Math.PI / 2;
+    const g = new THREE.Group(), M = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+    M(droneGeo, droneMat, 0, 0, 0);                                          // gövde (beyaz kabuk)
+    M(bandGeo, darkMat, 0, 0, 0).rotation.x = Math.PI / 2;                   // orta bant
+    const hood = M(hoodGeo, darkMat, 0, 0, 0.29); hood.rotation.x = Math.PI / 2; // göz kapağı
+    M(lensRimGeo, darkMat, 0, 0, 0.32);
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2040 });
-    const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.z = 0.3;
-    const body = new THREE.Mesh(droneGeo, droneMat); body.castShadow = true;
-    g.add(body, ring, eye);
+    const eye = M(eyeGeo, eyeMat, 0, 0, 0.3);
+    M(barrelGeo, darkMat, 0, -0.17, 0.3).rotation.x = Math.PI / 2;           // namlu
+    const rotors = [];
+    for (const sx of [-1, 1]){                                               // yan kollar + pervaneler
+      M(armGeo, darkMat, sx * 0.4, 0, 0);
+      M(podGeo, droneMat, sx * 0.62, 0, 0);
+      rotors.push(M(rotorGeo, rotorMat, sx * 0.62, 0.09, 0));
+    }
+    const ant = M(antGeo, darkMat, 0.08, 0.38, -0.05); ant.rotation.z = -0.25; // anten
+    M(tipGeo, eyeMat, 0.11, 0.49, -0.05);
+    M(thrGeo, darkMat, 0, -0.33, 0);                                          // alt itici
+    const thr = M(thrGeo, thrMat, 0, -0.37, 0); thr.scale.set(.7, .3, .7);
     const base = new THREE.Vector3(rand(-4, 4), rand(-0.3, 2), rand(-13, -9));
     g.position.copy(base); scene.add(g);
-    drones.push({ g, eye, eyeMat, base, ph: Math.random() * 6, fireT: rand(1.2, 2.4), alive: true });
+    drones.push({ g, eye, eyeMat, rotors, thr, base, ph: Math.random() * 6, fireT: rand(1.2, 2.4), alive: true });
   }
 
   const boltGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.6, 8); boltGeo.rotateX(Math.PI / 2);
@@ -453,7 +485,7 @@ async function startDisplay(){
   const coreMat = new THREE.MeshBasicMaterial({ color: 0xff5a66 });
   const tmp = new THREE.Vector3();
   function fire(d){
-    const start = d.g.position.clone(); start.z += 0.4;
+    const start = new THREE.Vector3(0, -0.17, 0.45).applyQuaternion(d.g.quaternion).add(d.g.position);
     const target = new THREE.Vector3(rand(-0.55, 0.55), rand(-0.4, 0.35), 0.6);
     const vel = target.sub(start).normalize().multiplyScalar(boltSpeed());
     const m = new THREE.Group();
@@ -527,6 +559,8 @@ async function startDisplay(){
       d.ph += dt;
       d.g.position.set(d.base.x + Math.sin(d.ph * .7) * .6, d.base.y + Math.sin(d.ph * 1.3) * .25, d.base.z);
       d.g.lookAt(0, 0, 0);
+      for (const ro of d.rotors) ro.rotation.y += dt * 40;
+      d.thr.material = thrMat; d.thr.scale.y = .3 + Math.sin(d.ph * 20) * .08;
       d.fireT -= dt;
       const ch = d.fireT < .45 ? (.45 - Math.max(d.fireT, 0)) / .45 : 0; // ateş öncesi parlama
       d.eye.scale.setScalar(1 + ch * 1.4);
@@ -566,13 +600,8 @@ async function startDisplay(){
   function loop(now){
     requestAnimationFrame(loop);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (inputMode === 'phone'){
-      // paket gecikirse son açısal hızla kılıcı ileri tahmin et (en fazla 80 ms)
-      const age = Math.min((now - rxT) / 1000, 0.08), ang = rxW.length() * age;
-      targetQ.copy(rxQ);
-      if (ang > 1e-5){ predQ.setFromAxisAngle(axis.copy(rxW).normalize(), ang); targetQ.multiply(predQ); }
-      saber.quaternion.slerp(targetQ, 0.7);
-    } else saber.quaternion.slerp(targetQ, 0.4);
+    if (inputMode === 'phone') targetQ.copy(rxQ);
+    saber.quaternion.slerp(targetQ, inputMode === 'phone' ? 0.85 : 0.4);
     updateBlade();
     const fl = .9 + Math.random() * .1;
     glow1.material.opacity = .6 * fl; glow2.material.opacity = .2 * fl;
