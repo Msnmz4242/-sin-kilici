@@ -121,6 +121,8 @@ function qmul(a, b){
   ];
 }
 const qconj = q => [-q[0], -q[1], -q[2], q[3]];
+const qnorm = q => { const n = Math.hypot(q[0], q[1], q[2], q[3]) || 1; return [q[0]/n, q[1]/n, q[2]/n, q[3]/n]; };
+const qrot = (q, v) => { const r = qmul(qmul(q, [v[0], v[1], v[2], 0]), qconj(q)); return [r[0], r[1], r[2]]; };
 function eulerToQuat(alpha, beta, gamma){ // W3C: R = Rz(alpha) Rx(beta) Ry(gamma)
   const d = Math.PI/180, a = alpha*d/2, b = beta*d/2, g = gamma*d/2;
   return qmul(qmul([0,0,Math.sin(a),Math.cos(a)], [Math.sin(b),0,0,Math.cos(b)]), [0,Math.sin(g),0,Math.cos(g)]);
@@ -137,42 +139,64 @@ function startController(){
   const st = t => $('cStatus').textContent = t;
   let peer = null, conn = null, seq = 0, qCal = null, lastQ = null, sensorsOn = false;
 
-  function onQuat(q){
+  // Gönder: [sıra, kuaterniyon(4), açısal hız(3)]  -> tablet arada tahmin yapabilsin
+  function onQuat(q, w){
     lastQ = q;
     if (!qCal) qCal = q;
     if (!conn || !conn.open) return;
-    const r = qmul(qconj(qCal), q);
-    conn.send([++seq, +r[0].toFixed(4), +r[1].toFixed(4), +r[2].toFixed(4), +r[3].toFixed(4)]);
+    const r = qmul(qconj(qCal), q), f = v => Math.round(v * 10000) / 10000;
+    w = w || [0, 0, 0];
+    conn.send([++seq, f(r[0]), f(r[1]), f(r[2]), f(r[3]), f(w[0]), f(w[1]), f(w[2])]);
   }
 
-  function useEuler(){
-    $('cSensor').textContent = 'sensör: deviceorientation';
-    addEventListener('deviceorientation', e => {
-      if (e.alpha == null) return;
-      onQuat(eulerToQuat(e.alpha, e.beta, e.gamma));
-    });
-  }
+  // --- Ana yol: jiroskopu kendimiz entegre ediyoruz (pusula yok -> takılma yok) ---
+  let qf = null, qTilt = null, lastT = 0, gyroOK = false;
+  addEventListener('deviceorientation', e => {
+    if (e.alpha == null) return;
+    qTilt = eulerToQuat(e.alpha, e.beta, e.gamma);   // sadece eğim düzeltmesi için
+    if (!gyroOK && !rosOK) onQuat(qTilt, null);       // jiroskop yoksa yedek yol
+  });
+  addEventListener('devicemotion', e => {
+    const rr = e.rotationRate;
+    if (!rr || rr.alpha == null) return;
+    const now = performance.now();
+    let dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
+    if (dt > 0.1) dt = 0.1;
+    if (!qf){ qf = qTilt ? qTilt.slice() : [0, 0, 0, 1]; }
+    if (!gyroOK){ gyroOK = true; $('cSensor').textContent = 'sensör: jiroskop (pürüzsüz mod)'; }
+    const D = Math.PI / 180, w = [rr.beta * D, rr.gamma * D, rr.alpha * D]; // x, y, z (cihaz ekseni)
+    const h = dt / 2;
+    qf = qnorm(qmul(qf, [w[0] * h, w[1] * h, w[2] * h, 1]));
+    if (qTilt){ // yavaşça yerçekimine hizala (eğim kaymasını önler, sağ-sol dönüşe dokunmaz)
+      const upDev = qrot(qconj(qTilt), [0, 0, 1]);
+      const g = qrot(qf, upDev), k = 0.02;
+      qf = qnorm(qmul([g[1] * k / 2, -g[0] * k / 2, 0, 1], qf));
+    }
+    onQuat(qf, w);
+  });
 
+  // --- Yedek: RelativeOrientationSensor (jiroskop olayı gelmezse) ---
+  let rosOK = false;
   function startSensors(){
     if (sensorsOn) return; sensorsOn = true;
-    if ('RelativeOrientationSensor' in window){
+    setTimeout(() => {
+      if (gyroOK || !('RelativeOrientationSensor' in window)) { if (!gyroOK) $('cSensor').textContent = 'sensör: deviceorientation'; return; }
       try{
-        let failed = false;
         const s = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
-        s.addEventListener('reading', () => { if (!failed) onQuat(s.quaternion); });
-        s.addEventListener('error', () => { if (!failed){ failed = true; useEuler(); } });
+        s.addEventListener('reading', () => { if (!gyroOK){ rosOK = true; onQuat(s.quaternion, null); } });
         s.start();
-        $('cSensor').textContent = 'sensör: jiroskop (hızlı mod)';
-        return;
+        $('cSensor').textContent = 'sensör: yön sensörü';
       }catch(e){}
-    }
-    useEuler();
+    }, 600);
   }
 
   async function askSensor(){
     try{
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
         await DeviceOrientationEvent.requestPermission();
+      }
+      if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission){
+        await DeviceMotionEvent.requestPermission();
       }
     }catch(e){}
     startSensors();
@@ -312,6 +336,9 @@ async function startDisplay(){
 
   // ---------- Bağlantı ----------
   let peer = null, conn = null, inputMode = 'none', lastSeq = 0, ping = null;
+  const rxQ = new THREE.Quaternion(), rxW = new THREE.Vector3(), predQ = new THREE.Quaternion(), axis = new THREE.Vector3();
+  let rxT = 0, rxCount = 0, rxHz = 0;
+  setInterval(() => { rxHz = rxCount; rxCount = 0; }, 1000);
   const send = m => { if (conn && conn.open) conn.send(m); };
 
   function setupPairing(){
@@ -355,7 +382,9 @@ async function startDisplay(){
     if (Array.isArray(d)){
       if (d[0] <= lastSeq && lastSeq - d[0] < 1000) return; // eski paketi at
       lastSeq = d[0];
-      targetQ.set(d[1], d[2], d[3], d[4]).normalize();
+      rxQ.set(d[1], d[2], d[3], d[4]).normalize();
+      rxW.set(d[5] || 0, d[6] || 0, d[7] || 0);
+      rxT = performance.now(); rxCount++;
       return;
     }
     if (!d) return;
@@ -529,7 +558,7 @@ async function startDisplay(){
     }
     $('hScore').textContent = score + (combo > 1 ? '  x' + Math.min(combo, 5) : '');
     $('hHp').textContent = '❤'.repeat(Math.max(hp_, 0));
-    $('hPing').textContent = ping != null ? ping + ' ms' : '';
+    $('hPing').textContent = inputMode === 'phone' ? (ping != null ? ping + ' ms · ' : '') + rxHz + ' Hz' : '';
   }
 
   // ---------- Döngü ----------
@@ -537,7 +566,13 @@ async function startDisplay(){
   function loop(now){
     requestAnimationFrame(loop);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    saber.quaternion.slerp(targetQ, inputMode === 'phone' ? 0.85 : 0.4);
+    if (inputMode === 'phone'){
+      // paket gecikirse son açısal hızla kılıcı ileri tahmin et (en fazla 80 ms)
+      const age = Math.min((now - rxT) / 1000, 0.08), ang = rxW.length() * age;
+      targetQ.copy(rxQ);
+      if (ang > 1e-5){ predQ.setFromAxisAngle(axis.copy(rxW).normalize(), ang); targetQ.multiply(predQ); }
+      saber.quaternion.slerp(targetQ, 0.7);
+    } else saber.quaternion.slerp(targetQ, 0.4);
     updateBlade();
     const fl = .9 + Math.random() * .1;
     glow1.material.opacity = .6 * fl; glow2.material.opacity = .2 * fl;
