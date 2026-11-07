@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Işın Kılıcı</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#05070d;color:#e8f0ff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none}
+canvas{display:block;position:fixed;inset:0}
+.screen{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center;background:radial-gradient(ellipse at center,#0d1630 0%,#05070d 75%);z-index:10}
+.screen.on{display:flex}
+.screen.glass{background:rgba(5,7,13,.45);justify-content:flex-start;padding-top:6vh}
+h1{font-size:clamp(30px,7vw,60px);letter-spacing:4px;color:#7fd4ff;text-shadow:0 0 18px #2aa8ff,0 0 40px #0a6cff}
+.sub{opacity:.8;max-width:540px;line-height:1.5}
+.modes{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+.mode{width:200px;padding:18px;border-radius:16px;background:#0e1a33;border:2px solid #1d3566;cursor:pointer}
+.mode b{display:block;font-size:20px;margin-bottom:6px}
+.mode.off{opacity:.4;cursor:default}
+.mode.act{border-color:#3fb6ff;box-shadow:0 0 22px #1a7dff66}
+.btn{padding:14px 28px;font-size:18px;font-weight:700;border-radius:12px;border:none;background:#2a8cff;color:#fff;cursor:pointer;box-shadow:0 0 16px #2a8cff88}
+.btn.gray{background:#24304a;box-shadow:none}
+.code{font-size:56px;font-weight:800;letter-spacing:12px;color:#fff}
+#qr{background:#fff;padding:8px;border-radius:10px;line-height:0}
+#qr img{width:170px;height:170px;image-rendering:pixelated}
+#link{font-size:12px;opacity:.5;word-break:break-all;max-width:90vw}
+#warn{color:#ffb040;font-size:14px;max-width:520px}
+#hud{position:fixed;top:0;left:0;right:0;display:none;justify-content:space-between;padding:12px 18px;font-size:20px;font-weight:700;z-index:5;pointer-events:none;text-shadow:0 0 6px #000}
+#flash{position:fixed;inset:0;background:#ff0030;opacity:0;pointer-events:none;z-index:4;transition:opacity .3s}
+input{font-size:40px;width:220px;text-align:center;letter-spacing:10px;padding:10px;border-radius:12px;border:2px solid #2a8cff;background:#0b1428;color:#fff;user-select:text;-webkit-user-select:text}
+#calBtn{width:100%;max-width:420px;height:36vh;font-size:34px;border-radius:24px}
+.small{font-size:14px;opacity:.6}
+</style>
+</head>
+<body>
+
+<!-- ===== TABLET (EKRAN) ===== -->
+<div id="lobby" class="screen">
+  <h1>IŞIN KILICI</h1>
+  <p class="sub">Telefonun kılıcın. Bir mod seç.</p>
+  <div class="modes">
+    <div class="mode off"><b>1 · Ritim Kesme</b><span class="small">Yakında</span></div>
+    <div class="mode act" id="mode2"><b>2 · Lazer Savuşturma</b><span class="small">Robotların lazerlerini geri sektir</span></div>
+    <div class="mode off"><b>3 · Düello</b><span class="small">Yakında</span></div>
+  </div>
+  <p class="small" id="best"></p>
+</div>
+
+<div id="pair" class="screen">
+  <h1>TELEFONU BAĞLA</h1>
+  <p class="sub">Telefonla QR'ı okut ya da kumanda sayfasına bu kodu yaz:</p>
+  <div class="code" id="code">····</div>
+  <div id="qr"></div>
+  <div id="link"></div>
+  <p id="pairStatus" class="sub">Hazırlanıyor...</p>
+  <p id="warn"></p>
+  <button class="btn gray" id="noPhone">Telefonsuz dene (parmak / fare)</button>
+</div>
+
+<div id="ready" class="screen glass">
+  <h1>HAZIR MISIN?</h1>
+  <p class="sub" id="readyTxt"></p>
+  <button class="btn" id="startBtn">BAŞLA</button>
+</div>
+
+<div id="over" class="screen">
+  <h1>OYUN BİTTİ</h1>
+  <p class="sub" id="overTxt"></p>
+  <button class="btn" id="againBtn">TEKRAR</button>
+  <button class="btn gray" id="menuBtn">Ana menü</button>
+</div>
+
+<div id="hud"><span id="hScore">0</span><span id="hPing"></span><span id="hHp"></span></div>
+<div id="flash"></div>
+
+<!-- ===== TELEFON (KUMANDA) ===== -->
+<div id="cConnect" class="screen">
+  <h1>KUMANDA</h1>
+  <p class="sub">Tabletteki 4 haneli kodu yaz</p>
+  <input id="codeIn" inputmode="numeric" maxlength="4" placeholder="0000">
+  <button class="btn" id="connBtn">BAĞLAN</button>
+  <p class="sub" id="cStatus"></p>
+</div>
+
+<div id="cPlay" class="screen">
+  <p class="sub">Telefonu <b>dik</b> tut, ekran sana baksın, kılıç gibi yukarı doğrult ve ORTALA'ya bas.</p>
+  <button class="btn" id="calBtn">ORTALA</button>
+  <button class="btn gray" id="cStart">BAŞLA</button>
+  <p class="small" id="cPing">ping: -</p>
+  <p class="small" id="cSensor"></p>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script type="module">
+const params = new URLSearchParams(location.search);
+const ROLE = params.get('rol') === 'kumanda' ? 'kumanda' : 'ekran';
+const PREFIX = 'isinkilici-oyun-v1-';
+const $ = id => document.getElementById(id);
+const show = id => document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+const rand = (a, b) => a + Math.random() * (b - a);
+
+// ---------- Ses ----------
+let actx = null;
+function initAudio(){ try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+function beep(f1, f2, dur, type='sawtooth', vol=.15){
+  if(!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = type; o.frequency.setValueAtTime(f1, t); o.frequency.exponentialRampToValueAtTime(f2, t+dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t+dur);
+}
+
+// ---------- Kuaterniyon yardımcıları ([x,y,z,w]) ----------
+function qmul(a, b){
+  return [
+    a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
+    a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
+    a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
+    a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2]
+  ];
+}
+const qconj = q => [-q[0], -q[1], -q[2], q[3]];
+function eulerToQuat(alpha, beta, gamma){ // W3C: R = Rz(alpha) Rx(beta) Ry(gamma)
+  const d = Math.PI/180, a = alpha*d/2, b = beta*d/2, g = gamma*d/2;
+  return qmul(qmul([0,0,Math.sin(a),Math.cos(a)], [Math.sin(b),0,0,Math.cos(b)]), [0,Math.sin(g),0,Math.cos(g)]);
+}
+
+if (ROLE === 'kumanda') startController(); else startDisplay();
+
+// =====================================================
+//                 TELEFON / KUMANDA
+// =====================================================
+function startController(){
+  show('cConnect');
+  const k = params.get('k'); if (k) $('codeIn').value = k;
+  const st = t => $('cStatus').textContent = t;
+  let peer = null, conn = null, seq = 0, qCal = null, lastQ = null, sensorsOn = false;
+
+  function onQuat(q){
+    lastQ = q;
+    if (!qCal) qCal = q;
+    if (!conn || !conn.open) return;
+    const r = qmul(qconj(qCal), q);
+    conn.send([++seq, +r[0].toFixed(4), +r[1].toFixed(4), +r[2].toFixed(4), +r[3].toFixed(4)]);
+  }
+
+  function useEuler(){
+    $('cSensor').textContent = 'sensör: deviceorientation';
+    addEventListener('deviceorientation', e => {
+      if (e.alpha == null) return;
+      onQuat(eulerToQuat(e.alpha, e.beta, e.gamma));
+    });
+  }
+
+  function startSensors(){
+    if (sensorsOn) return; sensorsOn = true;
+    if ('RelativeOrientationSensor' in window){
+      try{
+        let failed = false;
+        const s = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
+        s.addEventListener('reading', () => { if (!failed) onQuat(s.quaternion); });
+        s.addEventListener('error', () => { if (!failed){ failed = true; useEuler(); } });
+        s.start();
+        $('cSensor').textContent = 'sensör: jiroskop (hızlı mod)';
+        return;
+      }catch(e){}
+    }
+    useEuler();
+  }
+
+  async function askSensor(){
+    try{
+      if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
+        await DeviceOrientationEvent.requestPermission();
+      }
+    }catch(e){}
+    startSensors();
+  }
+
+  $('connBtn').onclick = async () => {
+    const code = $('codeIn').value.trim();
+    if (!/^\d{4}$/.test(code)){ st('4 haneli kodu yaz'); return; }
+    const sensorP = askSensor();
+    try{ navigator.wakeLock && navigator.wakeLock.request('screen').catch(()=>{}); }catch(e){}
+    await sensorP;
+    st('Bağlanıyor...');
+    if (peer) peer.destroy();
+    peer = new Peer();
+    peer.on('open', () => {
+      conn = peer.connect(PREFIX + code, { reliable: false, serialization: 'json' });
+      conn.on('open', () => { qCal = lastQ; show('cPlay'); });
+      conn.on('data', d => {
+        if (!d || Array.isArray(d)) return;
+        if (d.t === 'pong'){
+          const rtt = Math.round(performance.now() - d.s);
+          $('cPing').textContent = 'ping: ' + rtt + ' ms';
+          conn.send({ t: 'rtt', v: rtt });
+        } else if (d.t === 'hit') navigator.vibrate && navigator.vibrate(25);
+        else if (d.t === 'dmg') navigator.vibrate && navigator.vibrate([70, 40, 70]);
+      });
+      conn.on('close', () => { show('cConnect'); st('Bağlantı koptu, tekrar bağlan'); });
+    });
+    peer.on('error', e => st('Hata: ' + e.type + (e.type === 'peer-unavailable' ? ' (kod yanlış olabilir)' : '')));
+  };
+
+  $('calBtn').onclick = () => { if (lastQ) qCal = lastQ; navigator.vibrate && navigator.vibrate(20); };
+  $('cStart').onclick = () => { conn && conn.open && conn.send({ t: 'start' }); };
+  setInterval(() => { if (conn && conn.open) conn.send({ t: 'ping', s: performance.now() }); }, 1000);
+}
+
+// =====================================================
+//                 TABLET / EKRAN
+// =====================================================
+async function startDisplay(){
+  show('lobby');
+  let best = 0; try{ best = +localStorage.getItem('isin_best') || 0; }catch(e){}
+  $('best').textContent = best ? 'En iyi skor: ' + best : '';
+
+  const THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
+
+  // ---------- Sahne ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070d);
+  scene.fog = new THREE.Fog(0x05070d, 9, 28);
+  const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 100);
+  scene.add(new THREE.AmbientLight(0x6070a0, 0.7));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(2, 5, 3); scene.add(dl);
+  const grid = new THREE.GridHelper(80, 80, 0x1a4a8a, 0x0c2244); grid.position.y = -2; scene.add(grid);
+  { // yıldızlar
+    const g = new THREE.BufferGeometry(), p = [];
+    for (let i = 0; i < 600; i++) p.push(rand(-40, 40), rand(-1, 25), rand(-40, -15));
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x8899cc, size: 0.08 })));
+  }
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // ---------- Kılıç ----------
+  const HILT = new THREE.Vector3(0, -0.8, -1.15), BLADE = 1.3, UP = new THREE.Vector3(0, 1, 0);
+  const saber = new THREE.Group(); saber.position.copy(HILT); scene.add(saber);
+  const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.042, 0.3, 16),
+    new THREE.MeshStandardMaterial({ color: 0x9aa3b5, metalness: .8, roughness: .3 }));
+  hilt.position.y = -0.15; saber.add(hilt);
+  const add = (r, op) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, BLADE, 16),
+      new THREE.MeshBasicMaterial({ color: op ? 0x2a9dff : 0xffffff, transparent: !!op, opacity: op || 1,
+        blending: op ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: !op }));
+    m.position.y = BLADE / 2; saber.add(m); return m;
+  };
+  add(0.018, 0); const glow1 = add(0.05, .5); const glow2 = add(0.11, .16);
+  const sLight = new THREE.PointLight(0x3aa0ff, 3, 5, 1); sLight.position.y = 0.7; saber.add(sLight);
+
+  const targetQ = new THREE.Quaternion();
+  const bA = new THREE.Vector3(), bB = new THREE.Vector3(), pA = new THREE.Vector3(), pB = new THREE.Vector3();
+  function updateBlade(){
+    pA.copy(bA); pB.copy(bB);
+    bA.set(0, 0.05, 0).applyQuaternion(saber.quaternion).add(saber.position);
+    bB.set(0, BLADE, 0).applyQuaternion(saber.quaternion).add(saber.position);
+  }
+  updateBlade(); updateBlade();
+
+  // segment-segment en yakın mesafe (kare)
+  const t1 = new THREE.Vector3(), t2 = new THREE.Vector3(), t3 = new THREE.Vector3(), c1 = new THREE.Vector3(), c2 = new THREE.Vector3();
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  function segDist2(p1, q1, p2, q2){
+    const d1 = t1.subVectors(q1, p1), d2 = t2.subVectors(q2, p2), r = t3.subVectors(p1, p2);
+    const a = d1.dot(d1), e = d2.dot(d2), f = d2.dot(r);
+    let s, t;
+    if (a < 1e-9 && e < 1e-9) return r.dot(r);
+    if (a < 1e-9){ s = 0; t = clamp(f / e, 0, 1); }
+    else {
+      const c = d1.dot(r);
+      if (e < 1e-9){ t = 0; s = clamp(-c / a, 0, 1); }
+      else {
+        const b = d1.dot(d2), den = a * e - b * b;
+        s = den !== 0 ? clamp((b * f - c * e) / den, 0, 1) : 0;
+        t = (b * s + f) / e;
+        if (t < 0){ t = 0; s = clamp(-c / a, 0, 1); }
+        else if (t > 1){ t = 1; s = clamp((b - c) / a, 0, 1); }
+      }
+    }
+    c1.copy(p1).addScaledVector(d1, s); c2.copy(p2).addScaledVector(d2, t);
+    return c1.distanceToSquared(c2);
+  }
+  const HIT_R2 = 0.15 * 0.15;
+  const hitBlade = (p, q) => segDist2(p, q, bA, bB) < HIT_R2 || segDist2(p, q, pA, pB) < HIT_R2 || segDist2(p, q, pB, bB) < HIT_R2;
+
+  // ---------- Bağlantı ----------
+  let peer = null, conn = null, inputMode = 'none', lastSeq = 0, ping = null;
+  const send = m => { if (conn && conn.open) conn.send(m); };
+
+  function setupPairing(){
+    show('pair');
+    if (location.protocol !== 'https:')
+      $('warn').textContent = 'Uyarı: Telefon sensörleri sadece HTTPS sitede çalışır. Dosyayı GitHub Pages üzerinden aç.';
+    if (peer) return;
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    peer = new Peer(PREFIX + code);
+    peer.on('open', () => {
+      $('code').textContent = code;
+      const url = location.origin + location.pathname + '?rol=kumanda&k=' + code;
+      try{ const q = qrcode(0, 'M'); q.addData(url); q.make(); $('qr').innerHTML = q.createImgTag(5, 6); }
+      catch(e){ $('qr').style.display = 'none'; }
+      $('link').textContent = url;
+      $('pairStatus').textContent = 'Telefon bekleniyor...';
+    });
+    peer.on('error', e => {
+      if (e.type === 'unavailable-id'){ peer.destroy(); peer = null; setupPairing(); }
+      else $('pairStatus').textContent = 'Hata: ' + e.type;
+    });
+    peer.on('connection', c => {
+      if (conn) conn.close();
+      conn = c; lastSeq = 0;
+      c.on('open', () => {
+        inputMode = 'phone';
+        $('readyTxt').innerHTML = 'Telefon bağlandı! Kılıcı oynat, ekrandaki kılıç da oynasın.<br>Ters duruyorsa telefonu dik tutup <b>ORTALA</b>\'ya bas.';
+        if (state !== 'play') show('ready');
+      });
+      c.on('data', onData);
+      c.on('close', () => {
+        if (conn === c){ conn = null; inputMode = 'none'; ping = null; }
+        if (state === 'play') gameOver();
+        $('pairStatus').textContent = 'Telefon ayrıldı. Tekrar bağlanabilirsin.';
+        show('pair');
+      });
+    });
+  }
+
+  function onData(d){
+    if (Array.isArray(d)){
+      if (d[0] <= lastSeq && lastSeq - d[0] < 1000) return; // eski paketi at
+      lastSeq = d[0];
+      targetQ.set(d[1], d[2], d[3], d[4]).normalize();
+      return;
+    }
+    if (!d) return;
+    if (d.t === 'ping') send({ t: 'pong', s: d.s });
+    else if (d.t === 'rtt') ping = d.v;
+    else if (d.t === 'start' && state !== 'play') startGame();
+  }
+
+  // Telefonsuz test: kılıç parmağa/fareye doğru döner
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1.8), hp = new THREE.Vector3(), ndc = new THREE.Vector2();
+  function pointer(e){
+    if (inputMode !== 'mouse') return;
+    ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    if (ray.ray.intersectPlane(plane, hp)){
+      const dir = hp.sub(HILT).normalize();
+      targetQ.setFromUnitVectors(UP, dir);
+    }
+  }
+  addEventListener('pointermove', pointer);
+  addEventListener('pointerdown', pointer);
+
+  // ---------- Butonlar ----------
+  $('mode2').onclick = () => { initAudio(); setupPairing(); };
+  $('noPhone').onclick = () => {
+    inputMode = 'mouse';
+    $('readyTxt').textContent = 'Parmağını / fareyi gezdir, kılıç o yöne döner.';
+    show('ready');
+  };
+  $('startBtn').onclick = () => { initAudio(); startGame(); };
+  $('againBtn').onclick = () => { initAudio(); startGame(); };
+  $('menuBtn').onclick = () => { show('lobby'); $('best').textContent = best ? 'En iyi skor: ' + best : ''; };
+
+  // ---------- Oyun ----------
+  let state = 'menu', score = 0, hp_ = 5, combo = 0, shake = 0, spawnCd = 0;
+  const drones = [], bolts = [], parts = [];
+  const level = () => 1 + Math.floor(score / 250);
+  const boltSpeed = () => 7 + level() * 0.6;
+
+  const droneGeo = new THREE.SphereGeometry(0.35, 20, 16), ringGeo = new THREE.TorusGeometry(0.5, 0.04, 8, 32), eyeGeo = new THREE.SphereGeometry(0.1, 12, 10);
+  const droneMat = new THREE.MeshStandardMaterial({ color: 0x3a4256, metalness: .7, roughness: .35 });
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0x6a7590, metalness: .6, roughness: .4 });
+  function spawnDrone(){
+    const g = new THREE.Group();
+    const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = Math.PI / 2;
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2040 });
+    const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.z = 0.3;
+    g.add(new THREE.Mesh(droneGeo, droneMat), ring, eye);
+    const base = new THREE.Vector3(rand(-4, 4), rand(-0.3, 2), rand(-13, -9));
+    g.position.copy(base); scene.add(g);
+    drones.push({ g, eye, eyeMat, base, ph: Math.random() * 6, fireT: rand(1.2, 2.4), alive: true });
+  }
+
+  const boltGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.6, 8); boltGeo.rotateX(Math.PI / 2);
+  const boltGlowGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.7, 8); boltGlowGeo.rotateX(Math.PI / 2);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0xffe0e0 });
+  const tmp = new THREE.Vector3();
+  function fire(d){
+    const start = d.g.position.clone(); start.z += 0.4;
+    const target = new THREE.Vector3(rand(-0.55, 0.55), rand(-0.4, 0.35), 0.6);
+    const vel = target.sub(start).normalize().multiplyScalar(boltSpeed());
+    const m = new THREE.Group();
+    const gm = new THREE.MeshBasicMaterial({ color: 0xff1030, transparent: true, opacity: .65, blending: THREE.AdditiveBlending, depthWrite: false });
+    m.add(new THREE.Mesh(boltGeo, coreMat), new THREE.Mesh(boltGlowGeo, gm));
+    m.position.copy(start); m.lookAt(tmp.copy(start).add(vel)); scene.add(m);
+    bolts.push({ m, gm, pos: m.position, prev: start.clone(), vel, owner: d, target: null, deflected: false });
+    beep(900, 300, .18, 'square', .06);
+  }
+  function removeBolt(i){ scene.remove(bolts[i].m); bolts[i].gm.dispose(); bolts.splice(i, 1); }
+
+  const partGeo = new THREE.SphereGeometry(0.03, 6, 5);
+  function sparks(pos, color, n, sp){
+    for (let i = 0; i < n; i++){
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      const m = new THREE.Mesh(partGeo, mat); m.position.copy(pos); scene.add(m);
+      parts.push({ m, v: new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(.3, 1) * sp), life: .5 });
+    }
+  }
+
+  function deflect(b){
+    b.deflected = true; combo++;
+    score += 10 * Math.min(combo, 5);
+    b.gm.color.set(0x40c0ff);
+    let t = b.owner && b.owner.alive ? b.owner : null;
+    if (!t){ let md = 1e9; for (const d of drones) if (d.alive){ const dd = d.g.position.distanceTo(b.pos); if (dd < md){ md = dd; t = d; } } }
+    b.target = t;
+    const dir = t ? tmp.subVectors(t.g.position, b.pos).normalize() : tmp.set(rand(-.3, .3), rand(0, .3), -1).normalize();
+    b.vel.copy(dir).multiplyScalar(boltSpeed() * 1.7);
+    sparks(b.pos, 0x9fdcff, 14, 3);
+    beep(1400, 500, .12, 'sawtooth', .12);
+    send({ t: 'hit' });
+  }
+  function destroyDrone(d){
+    d.alive = false; scene.remove(d.g); d.eyeMat.dispose();
+    drones.splice(drones.indexOf(d), 1);
+    score += 50; sparks(d.g.position, 0xffa040, 40, 5);
+    beep(200, 40, .5, 'sawtooth', .2);
+  }
+  function playerHit(){
+    hp_--; combo = 0; shake = .35;
+    $('flash').style.opacity = .45; setTimeout(() => $('flash').style.opacity = 0, 120);
+    beep(150, 60, .35, 'square', .2);
+    send({ t: 'dmg' });
+    if (hp_ <= 0) gameOver();
+  }
+
+  function clearAll(){
+    while (bolts.length) removeBolt(bolts.length - 1);
+    while (drones.length){ const d = drones.pop(); scene.remove(d.g); d.eyeMat.dispose(); }
+  }
+  function startGame(){
+    clearAll(); score = 0; hp_ = 5; combo = 0; spawnCd = 0.5;
+    state = 'play'; show(null); $('hud').style.display = 'flex';
+  }
+  function gameOver(){
+    state = 'over'; clearAll(); $('hud').style.display = 'none';
+    if (score > best){ best = score; try{ localStorage.setItem('isin_best', best); }catch(e){} }
+    $('overTxt').textContent = 'Skor: ' + score + '   ·   En iyi: ' + best;
+    show('over');
+  }
+
+  function updateGame(dt, now){
+    // dron sayısı
+    const maxD = Math.min(5, level());
+    spawnCd -= dt;
+    if (drones.length < maxD && spawnCd <= 0){ spawnDrone(); spawnCd = 1.4; }
+    const incoming = bolts.filter(b => !b.deflected).length;
+    const fireBase = Math.max(1.0, 3.2 - level() * 0.25);
+    for (const d of drones){
+      d.ph += dt;
+      d.g.position.set(d.base.x + Math.sin(d.ph * .7) * .6, d.base.y + Math.sin(d.ph * 1.3) * .25, d.base.z);
+      d.g.lookAt(0, 0, 0);
+      d.fireT -= dt;
+      const ch = d.fireT < .45 ? (.45 - Math.max(d.fireT, 0)) / .45 : 0; // ateş öncesi parlama
+      d.eye.scale.setScalar(1 + ch * 1.4);
+      d.eyeMat.color.setRGB(1, .12 + ch * .8, .25 + ch * .7);
+      if (d.fireT <= 0){
+        if (incoming < level() + 1){ fire(d); d.fireT = rand(fireBase, fireBase * 1.6); }
+        else d.fireT = .3;
+      }
+    }
+    // mermiler
+    for (let i = bolts.length - 1; i >= 0; i--){
+      const b = bolts[i];
+      b.prev.copy(b.pos);
+      if (b.deflected && b.target && b.target.alive){ // hedefe hafif güdüm
+        tmp.subVectors(b.target.g.position, b.pos).normalize().multiplyScalar(b.vel.length());
+        b.vel.lerp(tmp, Math.min(1, dt * 6));
+      }
+      b.pos.addScaledVector(b.vel, dt);
+      b.m.lookAt(tmp.copy(b.pos).add(b.vel));
+      if (!b.deflected){
+        if (hitBlade(b.prev, b.pos)){ deflect(b); continue; }
+        if (b.pos.z > 0.2){ removeBolt(i); playerHit(); if (state !== 'play') return; continue; }
+      } else {
+        let hit = null;
+        for (const d of drones) if (d.alive && b.pos.distanceTo(d.g.position) < 0.65){ hit = d; break; }
+        if (hit){ destroyDrone(hit); removeBolt(i); continue; }
+        if (b.pos.z < -30 || b.pos.length() > 45) removeBolt(i);
+      }
+    }
+    $('hScore').textContent = score + (combo > 1 ? '  x' + Math.min(combo, 5) : '');
+    $('hHp').textContent = '❤'.repeat(Math.max(hp_, 0));
+    $('hPing').textContent = ping != null ? ping + ' ms' : '';
+  }
+
+  // ---------- Döngü ----------
+  let last = performance.now();
+  function loop(now){
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    saber.quaternion.slerp(targetQ, inputMode === 'phone' ? 0.85 : 0.4);
+    updateBlade();
+    const fl = .9 + Math.random() * .1;
+    glow1.material.opacity = .5 * fl; glow2.material.opacity = .16 * fl;
+    if (state === 'play') updateGame(dt, now);
+    for (let i = parts.length - 1; i >= 0; i--){
+      const p = parts[i]; p.life -= dt;
+      p.m.position.addScaledVector(p.v, dt); p.m.material.opacity = Math.max(p.life / .5, 0);
+      if (p.life <= 0){ scene.remove(p.m); p.m.material.dispose(); parts.splice(i, 1); }
+    }
+    if (shake > 0){ shake -= dt; camera.position.set(rand(-.04, .04), rand(-.04, .04), 0); }
+    else camera.position.set(0, 0, 0);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
