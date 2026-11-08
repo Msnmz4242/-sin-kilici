@@ -28,7 +28,11 @@ h1{font-size:clamp(30px,7vw,60px);letter-spacing:4px;color:#1c2430;font-weight:9
 #hud{position:fixed;top:0;left:0;right:0;display:none;justify-content:space-between;padding:12px 18px;font-size:20px;font-weight:700;z-index:5;pointer-events:none;text-shadow:0 0 6px #fff}
 #flash{position:fixed;inset:0;background:#ff0030;opacity:0;pointer-events:none;z-index:4;transition:opacity .3s}
 input{font-size:40px;width:220px;text-align:center;letter-spacing:10px;padding:10px;border-radius:12px;border:2px solid #2a7cff;background:#fff;color:#1c2430;user-select:text;-webkit-user-select:text}
-#calBtn{width:100%;max-width:420px;height:36vh;font-size:34px;border-radius:24px}
+#cPlay{gap:14px;padding:16px}
+#calBtn{width:100%;max-width:460px;height:34vh;font-size:40px;border-radius:26px}
+#cStart{width:100%;max-width:460px;height:22vh;font-size:40px;border-radius:26px;background:#1fa45a;color:#fff}
+#connBtn{width:100%;max-width:460px;height:14vh;font-size:34px;border-radius:22px}
+#cPlay .sub{font-size:18px}
 .small{font-size:14px;opacity:.6}
 </style>
 </head>
@@ -41,7 +45,7 @@ input{font-size:40px;width:220px;text-align:center;letter-spacing:10px;padding:1
   <div class="modes">
     <div class="mode off"><b>1 · Ritim Kesme</b><span class="small">Yakında</span></div>
     <div class="mode act" id="mode2"><b>2 · Lazer Savuşturma</b><span class="small">Robotların lazerlerini geri sektir</span></div>
-    <div class="mode off"><b>3 · Düello</b><span class="small">Yakında</span></div>
+    <div class="mode act" id="mode3"><b>3 · Düello</b><span class="small">Küçük savaşçıları kes, saldırılarını blokla</span></div>
   </div>
   <p class="small" id="best"></p>
 </div>
@@ -59,6 +63,7 @@ input{font-size:40px;width:220px;text-align:center;letter-spacing:10px;padding:1
 
 <div id="ready" class="screen glass">
   <h1>HAZIR MISIN?</h1>
+  <p class="sub" id="modeTxt"></p>
   <p class="sub" id="readyTxt"></p>
   <button class="btn" id="startBtn">BAŞLA</button>
 </div>
@@ -85,7 +90,7 @@ input{font-size:40px;width:220px;text-align:center;letter-spacing:10px;padding:1
 <div id="cPlay" class="screen">
   <p class="sub">📱 Telefonu <b>dikey</b> tut (kısa kenarı aşağıda, kılıç sapı gibi), ekran sana baksın, yukarı doğrult ve <b>ORTALA</b>'ya bas.</p>
   <button class="btn" id="calBtn">ORTALA</button>
-  <button class="btn gray" id="cStart">BAŞLA</button>
+  <button class="btn" id="cStart">BAŞLA</button>
   <p class="small" id="cPing">ping: -</p>
   <p class="small" id="cSensor"></p>
 </div>
@@ -216,8 +221,11 @@ function startController(){
 // =====================================================
 async function startDisplay(){
   show('lobby');
-  let best = 0; try{ best = +localStorage.getItem('isin_best') || 0; }catch(e){}
-  $('best').textContent = best ? 'En iyi skor: ' + best : '';
+  const best = { lazer: 0, duello: 0 };
+  try{ best.lazer = +localStorage.getItem('isin_best') || 0; best.duello = +localStorage.getItem('isin_best_duello') || 0; }catch(e){}
+  const showBest = () => $('best').textContent = (best.lazer || best.duello) ? 'En iyi · Lazer: ' + best.lazer + '   Düello: ' + best.duello : '';
+  showBest();
+  let gameMode = 'lazer';
 
   const THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
 
@@ -389,7 +397,7 @@ async function startDisplay(){
     ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     if (ray.ray.intersectPlane(plane, hp)){
-      const dir = hp.sub(HILT).normalize();
+      const dir = hp.sub(saber.position).normalize();
       targetQ.setFromUnitVectors(UP, dir);
     }
   }
@@ -406,7 +414,23 @@ async function startDisplay(){
   keepAwake();
 
   // ---------- Butonlar ----------
-  $('mode2').onclick = () => { initAudio(); setupPairing(); };
+  const MODE_TXT = {
+    lazer: 'Robotların lazerlerini kılıçla geri sektir.',
+    duello: 'Savaşçıları kılıcı <b>hızlı savurarak</b> kes. Gözleri <b>kırmızı</b> yanınca saldıracak: ya önce vur ya da kılıcı silahının önüne koyup <b>blokla</b>!'
+  };
+  const camBase = new THREE.Vector3();
+  function applyView(){
+    if (gameMode === 'duello'){ camBase.set(0, -.35, 0); camera.rotation.set(-.18, 0, 0); saber.position.set(0, -1.1, -1.1); }
+    else { camBase.set(0, 0, 0); camera.rotation.set(0, 0, 0); saber.position.copy(HILT); }
+    camera.position.copy(camBase); updateBlade(); updateBlade();
+  }
+  function chooseMode(m){
+    gameMode = m; applyView(); initAudio();
+    $('modeTxt').innerHTML = MODE_TXT[m];
+    if (inputMode === 'mouse' || (conn && conn.open)) show('ready'); else setupPairing();
+  }
+  $('mode2').onclick = () => chooseMode('lazer');
+  $('mode3').onclick = () => chooseMode('duello');
   $('noPhone').onclick = () => {
     inputMode = 'mouse';
     $('readyTxt').textContent = 'Parmağını / fareyi gezdir, kılıç o yöne döner.';
@@ -414,12 +438,12 @@ async function startDisplay(){
   };
   $('startBtn').onclick = () => { initAudio(); startGame(); };
   $('againBtn').onclick = () => { initAudio(); startGame(); };
-  $('menuBtn').onclick = () => { show('lobby'); $('best').textContent = best ? 'En iyi skor: ' + best : ''; };
+  $('menuBtn').onclick = () => { show('lobby'); showBest(); };
 
   // ---------- Oyun ----------
   let state = 'menu', score = 0, hp_ = 5, combo = 0, shake = 0, spawnCd = 0;
   const drones = [], bolts = [], parts = [];
-  const level = () => 1 + Math.floor(score / 250);
+  const level = () => 1 + Math.floor(score / (gameMode === 'duello' ? 500 : 250));
   const boltSpeed = () => 7 + level() * 0.6;
 
   const droneGeo = new THREE.SphereGeometry(0.32, 28, 20), eyeGeo = new THREE.SphereGeometry(0.075, 16, 12);
@@ -514,19 +538,26 @@ async function startDisplay(){
   function clearAll(){
     while (bolts.length) removeBolt(bolts.length - 1);
     while (drones.length){ const d = drones.pop(); scene.remove(d.g); d.eyeMat.dispose(); }
+    clearDuel();
   }
   function startGame(){
-    clearAll(); score = 0; hp_ = 5; combo = 0; spawnCd = 0.5;
+    clearAll(); score = 0; hp_ = 5; combo = 0; spawnCd = 0.5; duelSpawnCd = .8; applyView();
     state = 'play'; show(null); $('hud').style.display = 'flex';
   }
   function gameOver(){
     state = 'over'; clearAll(); $('hud').style.display = 'none';
-    if (score > best){ best = score; try{ localStorage.setItem('isin_best', best); }catch(e){} }
-    $('overTxt').textContent = 'Skor: ' + score + '   ·   En iyi: ' + best;
+    if (score > best[gameMode]){ best[gameMode] = score; try{ localStorage.setItem(gameMode === 'lazer' ? 'isin_best' : 'isin_best_duello', score); }catch(e){} }
+    $('overTxt').textContent = 'Skor: ' + score + '   ·   En iyi: ' + best[gameMode];
     show('over');
   }
 
   function updateGame(dt, now){
+    if (gameMode === 'duello') updateDuel(dt); else updateLazer(dt, now);
+    $('hScore').textContent = score + (combo > 1 ? '  x' + Math.min(combo, 5) : '');
+    $('hHp').textContent = '❤'.repeat(Math.max(hp_, 0));
+    $('hPing').textContent = inputMode === 'phone' ? (ping != null ? ping + ' ms · ' : '') + rxHz + ' Hz' : '';
+  }
+  function updateLazer(dt, now){
     // dron sayısı
     const maxD = Math.min(5, level());
     spawnCd -= dt;
@@ -568,9 +599,323 @@ async function startDisplay(){
         if (b.pos.z < -30 || b.pos.length() > 45) removeBolt(i);
       }
     }
-    $('hScore').textContent = score + (combo > 1 ? '  x' + Math.min(combo, 5) : '');
-    $('hHp').textContent = '❤'.repeat(Math.max(hp_, 0));
-    $('hPing').textContent = inputMode === 'phone' ? (ping != null ? ping + ' ms · ' : '') + rxHz + ' Hz' : '';
+  }
+
+  // =====================================================
+  //                       DÜELLO
+  // =====================================================
+  const enemies = [], debris = [];
+  const SLOTS = [{ x: 0, z: -2.0, f: null }, { x: -0.8, z: -2.15, f: null }, { x: 0.8, z: -2.15, f: null }];
+  const FT = {
+    er:     { color: 0xe5484d, hp: 1, s: 1.0,  speed: 1.3, wind: .8,  strike: .22, weapon: 'sopa',   pts: 100 },
+    hizli:  { color: 0xf5a524, hp: 1, s: .9,   speed: 2.1, wind: .55, strike: .16, weapon: 'hancer', pts: 120 },
+    kalkan: { color: 0x3e7bfa, hp: 2, s: 1.05, speed: 1.1, wind: .8,  strike: .22, weapon: 'sopa',   pts: 180 },
+    dev:    { color: 0x8e4ec6, hp: 3, s: 1.35, speed: .8,  wind: 1.1, strike: .3,  weapon: 'cekic',  pts: 300 },
+  };
+  const alongZ = (geo, z) => geo.rotateX(Math.PI / 2).translate(0, 0, z);
+  const G = {
+    pelvis: new THREE.SphereGeometry(.16, 24, 16),
+    thigh: new THREE.CapsuleGeometry(.068, .2, 6, 16),
+    shin: new THREE.CapsuleGeometry(.056, .2, 6, 16),
+    foot: new THREE.SphereGeometry(.07, 20, 12),
+    torso: new THREE.LatheGeometry([[.001,0],[.12,0],[.14,.05],[.125,.14],[.14,.22],[.165,.31],[.172,.37],[.14,.42],[.06,.445],[.001,.45]].map(p => new THREE.Vector2(p[0], p[1])), 40),
+    belt: new THREE.TorusGeometry(.135, .024, 10, 40),
+    shoulder: new THREE.SphereGeometry(.074, 20, 14),
+    upper: new THREE.CapsuleGeometry(.052, .16, 6, 14),
+    fore: new THREE.CapsuleGeometry(.046, .14, 6, 14),
+    hand: new THREE.SphereGeometry(.056, 16, 12),
+    neck: new THREE.CylinderGeometry(.05, .06, .1, 16),
+    head: new THREE.SphereGeometry(.2, 40, 30),
+    eye: new THREE.CapsuleGeometry(.021, .032, 4, 12),
+    band: new THREE.TorusGeometry(.193, .022, 10, 40),
+    tail: new THREE.BoxGeometry(.04, .15, .012),
+    cap: new THREE.SphereGeometry(.214, 36, 16, 0, Math.PI * 2, 0, Math.PI * .42),
+    crest: new THREE.TorusGeometry(.222, .03, 10, 32, Math.PI),
+    pad: new THREE.SphereGeometry(.11, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    horn: new THREE.ConeGeometry(.045, .17, 14),
+    // silahlar: hepsi elden +z yönüne uzanır
+    grip: alongZ(new THREE.CylinderGeometry(.03, .03, .14, 14), 0),
+    club: alongZ(new THREE.CylinderGeometry(.038, .024, .56, 14), .35),
+    knob: new THREE.SphereGeometry(.04, 14, 10),
+    guard: new THREE.BoxGeometry(.13, .025, .03),
+    blade: new THREE.BoxGeometry(.05, .012, .34).translate(0, 0, .26),
+    tip: new THREE.ConeGeometry(.025, .08, 4).rotateX(Math.PI / 2).translate(0, 0, .47),
+    handle: alongZ(new THREE.CylinderGeometry(.026, .026, .82, 12), .3),
+    hammer: new THREE.CylinderGeometry(.11, .11, .3, 24).rotateZ(Math.PI / 2),
+    hamCap: new THREE.CylinderGeometry(.125, .125, .03, 24).rotateZ(Math.PI / 2),
+    shield: new THREE.CylinderGeometry(.2, .2, .035, 40).rotateX(Math.PI / 2),
+    rim: new THREE.TorusGeometry(.2, .022, 10, 44),
+    boss: new THREE.SphereGeometry(.065, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2),
+  };
+
+  function buildFighter(type){
+    const T = FT[type];
+    const mat = new THREE.MeshPhysicalMaterial({ color: T.color, roughness: .42, clearcoat: .7, clearcoatRoughness: .25 });
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: .15 });
+    const wMat = new THREE.MeshStandardMaterial({ color: 0x2c3038, metalness: .5, roughness: .4 });
+    const mtl = new THREE.MeshStandardMaterial({ color: 0xd0d5de, metalness: .9, roughness: .18 });
+    const mk = (geo, m, parent, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+    const J = (parent, x = 0, y = 0, z = 0) => { const j = new THREE.Group(); j.position.set(x, y, z); parent.add(j); return j; };
+    const wide = type === 'dev' ? 1.22 : 1;
+
+    const root = new THREE.Group(); root.scale.setScalar(T.s);
+    const body = J(root);
+    const pelvisJ = J(body, 0, .62, 0);
+    mk(G.pelvis, mat, pelvisJ).scale.set(1.1 * wide, .72, .85);
+    const legs = [], arms = [];
+    for (const sx of [1, -1]){                       // +x = kendi solu (yüzü +z'ye bakıyor)
+      const hip = J(pelvisJ, sx * .085 * wide, -.03, 0);
+      mk(G.thigh, mat, hip, 0, -.15, 0);
+      const knee = J(hip, 0, -.29, 0);
+      mk(G.shin, mat, knee, 0, -.14, 0);
+      mk(G.foot, mat, knee, 0, -.265, .035).scale.set(1, .6, 1.55);
+      legs.push({ hip, knee });
+    }
+    const spine = J(pelvisJ, 0, .02, 0);
+    mk(G.torso, mat, spine).scale.set(wide, 1, .74);
+    const belt = mk(G.belt, mat, spine, 0, .035, 0); belt.rotation.x = Math.PI / 2; belt.scale.set(wide, .76, 1);
+    mk(G.neck, mat, spine, 0, .47, 0);
+    const headJ = J(spine, 0, .5, 0);
+    mk(G.head, mat, headJ, 0, .18, 0);
+    for (const sx of [1, -1]){ const e = mk(G.eye, eyeMat, headJ, sx * .068, .2, .176); e.rotation.x = -.12; }
+
+    // tipe özel aksesuarlar (hepsi gövdeyle aynı renk)
+    if (type === 'hizli'){
+      const b = mk(G.band, mat, headJ, 0, .24, 0); b.rotation.x = Math.PI / 2;
+      for (const s of [1, -1]){ const t = mk(G.tail, mat, headJ, s * .03, .2, -.21); t.rotation.set(.55, 0, s * .35); }
+    }
+    if (type === 'kalkan'){
+      mk(G.cap, mat, headJ, 0, .19, 0);
+      const c = mk(G.crest, mat, headJ, 0, .19, 0); c.rotation.y = Math.PI / 2;
+    }
+    if (type === 'dev'){
+      for (const s of [1, -1]){ const h = mk(G.horn, mat, headJ, s * .14, .33, 0); h.rotation.z = -s * .55; }
+    }
+
+    for (const sx of [1, -1]){
+      const sh = J(spine, sx * .195 * (type === 'dev' ? 1.2 : 1), .36, 0);
+      mk(G.shoulder, mat, sh);
+      if (type === 'dev') mk(G.pad, mat, sh, 0, .02, 0).scale.set(1.25, .9, 1.25);
+      mk(G.upper, mat, sh, 0, -.13, 0);
+      const el = J(sh, 0, -.26, 0);
+      mk(G.fore, mat, el, 0, -.11, 0);
+      const wr = J(el, 0, -.22, 0);
+      mk(G.hand, mat, wr, 0, -.02, 0);
+      arms.push({ sh, el, wr });
+    }
+
+    // silah (sağ el)
+    const wp = J(arms[1].wr, 0, -.03, 0);
+    let seg;
+    if (T.weapon === 'sopa'){
+      mk(G.grip, wMat, wp); mk(G.knob, wMat, wp, 0, 0, -.08); mk(G.club, wMat, wp); mk(G.knob, wMat, wp, 0, 0, .63);
+      seg = [.06, .67];
+    } else if (T.weapon === 'hancer'){
+      mk(G.grip, wMat, wp); mk(G.knob, wMat, wp, 0, 0, -.08).scale.setScalar(.8);
+      mk(G.guard, mtl, wp, 0, 0, .08); mk(G.blade, mtl, wp); mk(G.tip, mtl, wp).scale.y = .3;
+      seg = [.08, .51];
+    } else {
+      mk(G.handle, wMat, wp); mk(G.knob, wMat, wp, 0, 0, -.11);
+      mk(G.hammer, wMat, wp, 0, 0, .74);
+      for (const s of [1, -1]) mk(G.hamCap, mtl, wp, s * .15, 0, .74);
+      seg = [0, .86];
+    }
+    // kalkan (sol ön kol)
+    let shield = null;
+    if (type === 'kalkan'){
+      shield = J(arms[0].el, -.05, -.13, .06);
+      mk(G.shield, mat, shield); mk(G.rim, mtl, shield); mk(G.boss, mtl, shield, 0, 0, .015);
+    }
+    return { type, T, root, body, pelvisJ, spine, headJ, legs, arms, wp, seg, shield,
+      mat, eyeMat, wMat, mats: [mat, eyeMat, wMat, mtl],
+      hp: T.hp, state: 'walk', t: 0, ph: Math.random() * 6, pos: new THREE.Vector3(), slot: null,
+      atkCd: 1, pose: walkPose(0), hitCd: 0, flash: 0, kb: new THREE.Vector3(), alive: true, left: 0 };
+  }
+
+  // ---- pozlar (eklem açıları) ----
+  function walkPose(p){
+    const s = Math.sin(p), c = Math.cos(p);
+    return { sx: .08, sy: s * .12, hx: -.05, lsx: -s * .5, lsz: .15, lex: -.35, rsx: -.5 + s * .15, rsz: -.15, rex: -1.0, rwx: .2,
+      lhx: s * .55, lkx: .1 + Math.max(0, -c) * .9, rhx: -s * .55, rkx: .1 + Math.max(0, c) * .9, bob: Math.abs(c) * .035 - .02, lunge: 0 };
+  }
+  const P_READY   = { sx: .12, sy: .15, hx: -.08, lsx: -.45, lsz: .25, lex: -1.25, rsx: -.55, rsz: -.2, rex: -1.0, rwx: .25, lhx: -.35, lkx: .45, rhx: .2, rkx: .35, bob: -.03, lunge: 0 };
+  const P_WINDUP  = { ...P_READY, sx: -.18, sy: -.35, hx: .05, rsx: -2.75, rsz: -.25, rex: -.55, rwx: -.4, lsx: -.9, lex: -.6 };
+  const P_STRIKE  = { ...P_READY, sx: .38, sy: .25, hx: -.15, rsx: -1.25, rsz: .05, rex: -.12, rwx: 1.45, lsx: .3, lex: -.4, lunge: .15 };
+  const P_STAGGER = { ...P_READY, sx: -.45, sy: .2, hx: .35, rsx: -.3, rsz: -.6, rex: -.4, rwx: 0, lsx: -.2, lsz: .7, lex: -.3, lhx: .1, lkx: .2, rhx: -.1, rkx: .2 };
+  const ease = u => 1 - (1 - u) * (1 - u);
+  function lp(a, b, u){ const o = {}; for (const k in a) o[k] = a[k] + (b[k] - a[k]) * u; return o; }
+  function applyPose(f, P){
+    f.spine.rotation.set(P.sx, P.sy, 0);
+    f.headJ.rotation.x = P.hx;
+    const [L, R] = f.arms;
+    L.sh.rotation.set(P.lsx, 0, P.lsz); L.el.rotation.x = P.lex;
+    R.sh.rotation.set(P.rsx, 0, P.rsz); R.el.rotation.x = P.rex; R.wr.rotation.x = P.rwx;
+    f.legs[0].hip.rotation.x = P.lhx; f.legs[0].knee.rotation.x = P.lkx;
+    f.legs[1].hip.rotation.x = P.rhx; f.legs[1].knee.rotation.x = P.rkx;
+    f.body.position.set(0, P.bob, P.lunge);
+  }
+
+  function spawnFighter(){
+    const free = SLOTS.filter(s => !s.f); if (!free.length) return;
+    const slot = free[Math.floor(Math.random() * free.length)];
+    const lvl = level(), pool = ['er'];
+    if (lvl >= 2) pool.push('hizli');
+    if (lvl >= 3) pool.push('kalkan');
+    if (lvl >= 4) pool.push('dev');
+    const f = buildFighter(pool[Math.floor(Math.random() * pool.length)]);
+    f.slot = slot; slot.f = f;
+    f.pos.set(rand(-3, 3), -2, rand(-14, -11));
+    f.atkCd = rand(.5, 1.2);
+    scene.add(f.root); enemies.push(f);
+  }
+
+  // ---- parçalara ayrılma (plastik oyuncak gibi) ----
+  function detach(o, f, dir, power){
+    o.updateMatrixWorld(true);
+    scene.attach(o);
+    const c = new THREE.Vector3(); o.getWorldPosition(c);
+    const out = c.sub(f.root.position); out.y = 0; out.normalize();
+    debris.push({ o, f, s0: o.scale.clone(), life: rand(2.6, 3.4),
+      v: new THREE.Vector3().addScaledVector(dir, rand(1, 2.5) * power).addScaledVector(out, rand(.8, 2)).add(new THREE.Vector3(0, rand(1.5, 3.2), 0)),
+      w: new THREE.Vector3(rand(-9, 9), rand(-9, 9), rand(-9, 9)) });
+    f.left++;
+  }
+  const dbox = new THREE.Box3();
+  function removeDebris(i){
+    const d = debris[i]; scene.remove(d.o); debris.splice(i, 1);
+    if (--d.f.left <= 0 && !d.f.alive) d.f.mats.forEach(m => m.dispose());
+  }
+  function updateDebris(dt){
+    for (let i = debris.length - 1; i >= 0; i--){
+      const d = debris[i]; d.life -= dt;
+      d.v.y -= 9.8 * dt;
+      d.o.position.addScaledVector(d.v, dt);
+      d.o.rotation.x += d.w.x * dt; d.o.rotation.y += d.w.y * dt; d.o.rotation.z += d.w.z * dt;
+      if (d.life < .6) d.o.scale.copy(d.s0).multiplyScalar(Math.max(d.life / .6, .001));
+      d.o.updateMatrixWorld(true);
+      dbox.setFromObject(d.o);
+      if (dbox.min.y < -2){
+        d.o.position.y += -2 - dbox.min.y;
+        if (d.v.y < 0) d.v.y *= -.3;
+        d.v.x *= .8; d.v.z *= .8; d.w.multiplyScalar(.75);
+      }
+      if (d.life <= 0) removeDebris(i);
+    }
+  }
+  function clearDuel(){
+    const owners = new Set();
+    for (const f of enemies){ scene.remove(f.root); f.alive = false; owners.add(f); }
+    enemies.length = 0;
+    for (const d of debris){ scene.remove(d.o); owners.add(d.f); }
+    debris.length = 0;
+    owners.forEach(f => f.mats.forEach(m => m.dispose()));
+    SLOTS.forEach(s => s.f = null);
+  }
+
+  const wA = new THREE.Vector3(), wB = new THREE.Vector3(), capA = new THREE.Vector3(), capB = new THREE.Vector3(), cutDir = new THREE.Vector3();
+  let duelSpawnCd = 0;
+
+  function parry(f, pt){
+    f.state = 'stagger'; f.t = 0;
+    f.kb.set(f.pos.x, 0, f.pos.z).normalize().multiplyScalar(1.8);
+    combo++; score += 25 * Math.min(combo, 5);
+    sparks(pt, 0xffc020, 22, 4); sparks(pt, 0x1a8cff, 10, 2);
+    beep(1800, 900, .15, 'square', .12); beep(2600, 1400, .1, 'triangle', .08);
+    send({ t: 'hit' });
+  }
+  function kill(f){
+    f.alive = false; f.slot.f = null; enemies.splice(enemies.indexOf(f), 1);
+    f.eyeMat.emissive.setRGB(0, 0, 0); f.wMat.emissive.setRGB(0, 0, 0); f.mat.emissive.setScalar(0);
+    const chest = new THREE.Vector3(); f.spine.getWorldPosition(chest);
+    sparks(chest, f.T.color, 30, 4);
+    for (const p of [f.headJ, f.arms[0].sh, f.arms[1].sh, f.legs[0].hip, f.legs[1].hip, f.spine, f.pelvisJ]) detach(p, f, cutDir, 1);
+    scene.remove(f.root);
+  }
+  function hitFighter(f, pt){
+    f.hitCd = .35; f.flash = 1; f.hp--; combo++;
+    send({ t: 'hit' }); sparks(pt, f.T.color, 18, 3);
+    if (f.shield){ detach(f.shield, f, cutDir, 1.4); f.shield = null; }
+    if (f.hp <= 0){ score += f.T.pts + 20 * Math.min(combo, 10); kill(f); beep(320, 60, .35, 'sawtooth', .18); return; }
+    score += 20;
+    f.state = 'stagger'; f.t = 0; f.kb.set(f.pos.x, 0, f.pos.z).normalize().multiplyScalar(2.2);
+    f.eyeMat.emissive.setRGB(0, 0, 0); f.wMat.emissive.setRGB(0, 0, 0);
+    beep(700, 200, .15, 'sawtooth', .12);
+  }
+
+  function updateDuel(dt){
+    const lvl = level();
+    const maxE = lvl < 2 ? 1 : lvl < 4 ? 2 : 3;
+    duelSpawnCd -= dt;
+    if (enemies.length < maxE && duelSpawnCd <= 0){ spawnFighter(); duelSpawnCd = 1.6; }
+    const maxAtk = lvl >= 5 ? 2 : 1;
+    let attacking = enemies.filter(f => f.state === 'windup' || f.state === 'strike').length;
+    const tipSpeed = bB.distanceTo(pB) / Math.max(dt, 1e-3);
+    cutDir.subVectors(bB, pB).normalize();
+
+    for (let i = enemies.length - 1; i >= 0; i--){
+      const f = enemies[i], T = f.T;
+      f.t += dt; f.hitCd -= dt; f.flash = Math.max(0, f.flash - dt * 4);
+      const tx = f.slot.x, tz = f.slot.z - (T.s - 1) * .5;
+      if (f.state === 'walk'){
+        const dx = tx - f.pos.x, dz = tz - f.pos.z, dist = Math.hypot(dx, dz);
+        const step = Math.min(dist, T.speed * dt);
+        if (dist > 1e-4){ f.pos.x += dx / dist * step; f.pos.z += dz / dist * step; }
+        f.ph += dt * T.speed * 6.5 / T.s;
+        f.pose = lp(f.pose, walkPose(f.ph), 1 - Math.exp(-dt * 12));
+        if (dist < .03){ f.state = 'ready'; f.t = 0; }
+      } else if (f.state === 'ready'){
+        const P = { ...P_READY }; P.bob += Math.sin(f.t * 3.2) * .012; P.sy += Math.sin(f.t * 1.7) * .06;
+        f.pose = lp(f.pose, P, 1 - Math.exp(-dt * 10));
+        f.atkCd -= dt * (1 + lvl * .12);
+        if (f.atkCd <= 0 && attacking < maxAtk){
+          f.state = 'windup'; f.t = 0; attacking++; beep(180, 300, .3, 'triangle', .1);
+          f.aim = [-.55, .25, 1.25][Math.floor(Math.random() * 3)];        // sol / orta / sağ
+          f.pW = { ...P_WINDUP, sy: -f.aim * .6 }; f.pS = { ...P_STRIKE, sy: f.aim };
+        }
+      } else if (f.state === 'windup'){
+        const u = Math.min(f.t / T.wind, 1);
+        f.pose = lp(P_READY, f.pW, ease(u));
+        f.eyeMat.emissive.setRGB(u, 0, 0); f.wMat.emissive.setRGB(u * .6, u * .05, u * .05);
+        if (u >= 1){ f.state = 'strike'; f.t = 0; f.prevTip = null; }
+      } else if (f.state === 'strike'){
+        f.pose = lp(f.pW, f.pS, Math.min(f.t / T.strike, 1) ** 2);
+      } else if (f.state === 'recover'){
+        f.pose = lp(f.pose, P_READY, 1 - Math.exp(-dt * 6));
+        if (f.t > .55){ f.state = 'ready'; f.t = 0; f.atkCd = rand(1.4, 2.6); }
+      } else if (f.state === 'stagger'){
+        f.pos.addScaledVector(f.kb, dt); f.kb.multiplyScalar(Math.max(0, 1 - dt * 5));
+        f.pose = lp(f.pose, P_STAGGER, 1 - Math.exp(-dt * 14));
+        if (f.t > .6){ f.state = 'walk'; f.t = 0; f.atkCd = rand(.8, 1.6); }
+      }
+      if (f.state !== 'windup' && f.state !== 'strike'){ f.eyeMat.emissive.multiplyScalar(.85); f.wMat.emissive.multiplyScalar(.85); }
+      if (f.shield && f.state !== 'stagger'){ // kalkanı göğsünün önünde tutar
+        const k = 1 - Math.exp(-dt * 10);
+        f.pose.lsx += (-.3 - f.pose.lsx) * k; f.pose.lsz += (.15 - f.pose.lsz) * k; f.pose.lex += (-.5 - f.pose.lex) * k;
+      }
+      f.root.position.set(f.pos.x, -2, f.pos.z);
+      f.root.rotation.y = Math.atan2(-f.pos.x, -f.pos.z);
+      applyPose(f, f.pose);
+      f.mat.emissive.setScalar(f.flash * .8);
+      f.root.updateMatrixWorld(true);
+
+      // savuşturma (blok)
+      if (f.state === 'strike'){
+        wA.set(0, 0, f.seg[0]); f.wp.localToWorld(wA);
+        wB.set(0, 0, f.seg[1]); f.wp.localToWorld(wB);
+        const R2 = .13 * .13, pt = f.prevTip || wB;
+        // blok için kılıcı silaha doğru SAVURMAK gerekir (sabit tutmak yetmez)
+        if (tipSpeed > 1.2 && (segDist2(wA, wB, bA, bB) < R2 || segDist2(wA, wB, pA, pB) < R2 || segDist2(wA, wB, pB, bB) < R2 || segDist2(pt, wB, bA, bB) < R2)){ parry(f, c1.clone()); continue; }
+        f.prevTip = (f.prevTip || new THREE.Vector3()).copy(wB);
+        if (f.t >= T.strike){ f.state = 'recover'; f.t = 0; playerHit(); if (state !== 'play') return; continue; }
+      }
+      // kesme (kılıç hızlı savrulursa)
+      if (tipSpeed > 2.2 && f.hitCd <= 0){
+        capA.set(0, .25, 0); f.root.localToWorld(capA);
+        capB.set(0, .18, 0); f.headJ.localToWorld(capB);
+        const r = .2 * T.s + .05, R2 = r * r;
+        if (segDist2(bA, bB, capA, capB) < R2 || segDist2(pB, bB, capA, capB) < R2){ hitFighter(f, c1.clone()); continue; }
+      }
+    }
   }
 
   // ---------- Döngü ----------
@@ -584,13 +929,14 @@ async function startDisplay(){
     const fl = .9 + Math.random() * .1;
     glow1.material.opacity = .6 * fl; glow2.material.opacity = .2 * fl;
     if (state === 'play') updateGame(dt, now);
+    updateDebris(dt);
     for (let i = parts.length - 1; i >= 0; i--){
       const p = parts[i]; p.life -= dt;
       p.m.position.addScaledVector(p.v, dt); p.m.material.opacity = Math.max(p.life / .5, 0);
       if (p.life <= 0){ scene.remove(p.m); p.m.material.dispose(); parts.splice(i, 1); }
     }
-    if (shake > 0){ shake -= dt; camera.position.set(rand(-.04, .04), rand(-.04, .04), 0); }
-    else camera.position.set(0, 0, 0);
+    if (shake > 0){ shake -= dt; camera.position.set(camBase.x + rand(-.04, .04), camBase.y + rand(-.04, .04), camBase.z); }
+    else camera.position.copy(camBase);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(loop);
