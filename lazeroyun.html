@@ -418,7 +418,7 @@ async function startDisplay(){
 
   // ---------- Butonlar ----------
   const MODE_TXT = {
-    ritim: 'Müziğe göre gelen küpleri <b>üstündeki ok yönünde</b> kes (nokta olanı her yöne). Yanlış yön ya da kaçırma can götürür, 16 kombo can verir.',
+    ritim: 'Müziğe göre gelen küpleri <b>üstündeki ok yönünde</b> kes (nokta olanı her yöne). Ok hep küpün durduğu tarafı gösterir. Kaçırmak can götürür, yanlış yön komboyu bozar, 16 kombo can verir.',
     lazer: 'Robotların lazerlerini kılıçla geri sektir.',
     duello: 'Koşu ve zıplama otomatik. Yol kenarındaki savaşçıları geçerken <b>kılıcı savurarak</b> kes. Yolu kesen büyük rakipte durursun: gözleri <b>kırmızı</b> yanınca saldırır, kılıcı silahına doğru savurup <b>blokla</b>!'
   };
@@ -1094,16 +1094,26 @@ async function startDisplay(){
       if (inten >= 3 && pos % 4 === 0) tone(t, 'square', CHORD[ch][(pos / 4) % 3] * 2, .03, RT.stepDur * 2, 3000);
     }
   }
-  function addNote(t, second){
+  // Ok yönü küpün konumuyla uyumlu: soldaki küp ← , sağdaki → , üstteki ↑ , alttaki ↓
+  // Ayrıca akış: aşağı kestikten sonra yukarı, sola kestikten sonra sağa gelme eğiliminde.
+  function addNote(t, inten){
+    const r = Math.random(), L = RT.lastDir;
+    const pool = inten >= 2 ? ['down', 'down', 'up', 'left', 'right'] : ['down', 'down', 'up'];
     let dir;
-    if (Math.random() < .12) dir = 'dot';
-    else if (RT.lastDir === 'down' && Math.random() < .6) dir = 'up';
-    else if (RT.lastDir === 'up' && Math.random() < .6) dir = 'down';
-    else dir = ['down', 'up', 'left', 'right'][Math.floor(Math.random() * 4)];
-    let x = LANES_X[Math.floor(Math.random() * 3)];
-    if (second){ x = RT.lastX === 0 ? LANES_X[Math.random() < .5 ? 0 : 2] : -RT.lastX; dir = RT.lastDir; }
-    else { RT.lastX = x; if (dir !== 'dot') RT.lastDir = dir; }
-    const y = (dir === 'up' || dir === 'down') ? LANES_Y[Math.random() < .7 ? 0 : 1] : LANES_Y[Math.floor(Math.random() * 2)];
+    if (r < .15) dir = 'dot';
+    else if (L === 'down' && r < .55) dir = 'up';
+    else if (L === 'up' && r < .65) dir = 'down';
+    else if (inten >= 2 && L === 'left' && r < .55) dir = 'right';
+    else if (inten >= 2 && L === 'right' && r < .55) dir = 'left';
+    else dir = pool[Math.floor(Math.random() * pool.length)];
+    const anyX = () => LANES_X[Math.floor(Math.random() * 3)], anyY = () => LANES_Y[Math.floor(Math.random() * 2)];
+    let x, y;
+    if (dir === 'left'){ x = LANES_X[0]; y = anyY(); }
+    else if (dir === 'right'){ x = LANES_X[2]; y = anyY(); }
+    else if (dir === 'up'){ x = anyX(); y = LANES_Y[1]; }        // üst sıra
+    else if (dir === 'down'){ x = anyX(); y = LANES_Y[0]; }      // alt sıra
+    else { x = anyX(); y = anyY(); }
+    if (dir !== 'dot') RT.lastDir = dir;
     notes.push({ t, x, y, dir });
   }
   function chartStep(step, t){
@@ -1114,8 +1124,7 @@ async function startDisplay(){
     if (pos % 4 === 0) p = pos === 0 ? .95 : .7;
     else if (pos % 4 === 2) p = [0, 0, .2, .35, .5][inten];
     if (Math.random() >= p) return;
-    addNote(t, false);
-    if (inten >= 3 && pos % 4 === 0 && Math.random() < .2) addNote(t, true);
+    addNote(t, inten);
   }
   function spawnCube(n){
     const g = new THREE.Group();
@@ -1168,11 +1177,11 @@ async function startDisplay(){
       const c = cubes[i], z = RT.hitZ - (c.t - now) * RT.speed;
       c.m.position.set(c.x, c.y, z);
       if (z > RT.hitZ + .9){ scene.remove(c.m); cubes.splice(i, 1); playerHit(); if (state !== 'play') return; continue; }
-      if (z < RT.hitZ - 1.2 || sp < 1.6) continue;
-      const P = c.m.position, R2 = .23 * .23;
+      if (z < RT.hitZ - 1.3 || sp < 1.3) continue;
+      const P = c.m.position, R2 = .27 * .27;
       if (segDist2(bA, bB, P, P) < R2 || segDist2(pA, pB, P, P) < R2 || segDist2(pB, bB, P, P) < R2){
         scene.remove(c.m); cubes.splice(i, 1);
-        const ok = c.dir === 'dot' || (vx * DIRS[c.dir][0] + vy * DIRS[c.dir][1]) / sp > .5;
+        const ok = c.dir === 'dot' || (vx * DIRS[c.dir][0] + vy * DIRS[c.dir][1]) / sp > .25;
         slice(c, vx, vy, ok);
         if (ok){
           combo++;
@@ -1181,7 +1190,7 @@ async function startDisplay(){
           if (combo % 16 === 0 && hp_ < 5) hp_++;
           sparks(P, 0x2a7cff, 16, 3); noiseHit(now, 'highpass', 2500, .3, .12); tone(now, 'sine', 880, .12, .1);
           send({ t: 'hit' });
-        } else { sparks(P, 0x8a919c, 10, 2); playerHit(); if (state !== 'play') return; }
+        } else { combo = 0; sparks(P, 0x8a919c, 10, 2); beep(160, 90, .15, 'square', .1); send({ t: 'dmg' }); }
       }
     }
   }
