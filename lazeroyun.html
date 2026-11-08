@@ -43,9 +43,9 @@ input{font-size:40px;width:220px;text-align:center;letter-spacing:10px;padding:1
   <h1>IŞIN KILICI</h1>
   <p class="sub">Telefonun kılıcın. Bir mod seç.</p>
   <div class="modes">
-    <div class="mode off"><b>1 · Ritim Kesme</b><span class="small">Yakında</span></div>
+    <div class="mode act" id="mode1"><b>1 · Ritim Kesme</b><span class="small">Müziğe göre gelen küpleri ok yönünde kes</span></div>
     <div class="mode act" id="mode2"><b>2 · Lazer Savuşturma</b><span class="small">Robotların lazerlerini geri sektir</span></div>
-    <div class="mode act" id="mode3"><b>3 · Düello</b><span class="small">Küçük savaşçıları kes, saldırılarını blokla</span></div>
+    <div class="mode act" id="mode3"><b>3 · Düello</b><span class="small">Koşarken savaşçıları kes, büyüklerle düello yap</span></div>
   </div>
   <p class="small" id="best"></p>
 </div>
@@ -221,9 +221,10 @@ function startController(){
 // =====================================================
 async function startDisplay(){
   show('lobby');
-  const best = { lazer: 0, duello: 0 };
-  try{ best.lazer = +localStorage.getItem('isin_best') || 0; best.duello = +localStorage.getItem('isin_best_duello') || 0; }catch(e){}
-  const showBest = () => $('best').textContent = (best.lazer || best.duello) ? 'En iyi · Lazer: ' + best.lazer + '   Düello: ' + best.duello : '';
+  const BEST_KEY = { ritim: 'isin_best_ritim', lazer: 'isin_best', duello: 'isin_best_duello' };
+  const best = { ritim: 0, lazer: 0, duello: 0 };
+  try{ for (const k in BEST_KEY) best[k] = +localStorage.getItem(BEST_KEY[k]) || 0; }catch(e){}
+  const showBest = () => $('best').textContent = (best.ritim || best.lazer || best.duello) ? 'En iyi · Ritim: ' + best.ritim + '   Lazer: ' + best.lazer + '   Düello: ' + best.duello : '';
   showBest();
   let gameMode = 'lazer';
 
@@ -244,13 +245,14 @@ async function startDisplay(){
   dl.castShadow = true; dl.shadow.mapSize.set(1024, 1024);
   Object.assign(dl.shadow.camera, { left: -9, right: 9, top: 9, bottom: -18, near: 1, far: 30 });
   dl.target.position.set(0, -2, -8); scene.add(dl, dl.target);
+  const roomG = new THREE.Group(); scene.add(roomG);
   { // beyaz oda: zemin, duvarlar, tavan
     const W = 14, H = 6, FLOOR = -2, Z0 = 3, Z1 = -20, L = Z0 - Z1;
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xf7f8fa, roughness: .9 });
     const floorMat = new THREE.MeshStandardMaterial({ color: 0xe4e8ee, roughness: .7 });
     const plane = (w, h, mat, rx, ry, x, y, z) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
-      m.rotation.set(rx, ry, 0); m.position.set(x, y, z); scene.add(m); return m;
+      m.rotation.set(rx, ry, 0); m.position.set(x, y, z); roomG.add(m); return m;
     };
     plane(W, L, floorMat, -Math.PI / 2, 0, 0, FLOOR, (Z0 + Z1) / 2).receiveShadow = true;
     plane(W, L, wallMat, Math.PI / 2, 0, 0, FLOOR + H, (Z0 + Z1) / 2);
@@ -258,12 +260,12 @@ async function startDisplay(){
     plane(L, H, wallMat, 0, -Math.PI / 2, W / 2, FLOOR + H / 2, (Z0 + Z1) / 2).receiveShadow = true;
     plane(W, H, wallMat, 0, 0, 0, FLOOR + H / 2, Z1).receiveShadow = true;
     const grid = new THREE.GridHelper(W, 14, 0xc9d0da, 0xd6dce4);
-    grid.scale.z = L / W; grid.position.set(0, FLOOR + 0.005, (Z0 + Z1) / 2); scene.add(grid);
+    grid.scale.z = L / W; grid.position.set(0, FLOOR + 0.005, (Z0 + Z1) / 2); roomG.add(grid);
     const lamp = new THREE.MeshBasicMaterial({ color: 0xffffff });
     for (let z = 0; z > Z1; z -= 4) for (const x of [-3, 3]) plane(2.2, 0.6, lamp, Math.PI / 2, 0, x, FLOOR + H - 0.01, z);
     const trim = new THREE.MeshStandardMaterial({ color: 0xcfd6df });
     for (const x of [-W / 2 + 0.02, W / 2 - 0.02]) { // süpürgelik
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, L), trim); b.position.set(x, FLOOR + 0.075, (Z0 + Z1) / 2); scene.add(b);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.15, L), trim); b.position.set(x, FLOOR + 0.075, (Z0 + Z1) / 2); roomG.add(b);
     }
   }
   addEventListener('resize', () => {
@@ -395,6 +397,7 @@ async function startDisplay(){
   function pointer(e){
     if (inputMode !== 'mouse') return;
     ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    plane.constant = 1.8 - camera.position.z;
     ray.setFromCamera(ndc, camera);
     if (ray.ray.intersectPlane(plane, hp)){
       const dir = hp.sub(saber.position).normalize();
@@ -415,13 +418,20 @@ async function startDisplay(){
 
   // ---------- Butonlar ----------
   const MODE_TXT = {
+    ritim: 'Müziğe göre gelen küpleri <b>üstündeki ok yönünde</b> kes (nokta olanı her yöne). Yanlış yön ya da kaçırma can götürür, 16 kombo can verir.',
     lazer: 'Robotların lazerlerini kılıçla geri sektir.',
-    duello: 'Savaşçıları kılıcı <b>hızlı savurarak</b> kes. Gözleri <b>kırmızı</b> yanınca saldıracak: ya önce vur ya da kılıcı silahının önüne koyup <b>blokla</b>!'
+    duello: 'Koşu ve zıplama otomatik. Yol kenarındaki savaşçıları geçerken <b>kılıcı savurarak</b> kes. Yolu kesen büyük rakipte durursun: gözleri <b>kırmızı</b> yanınca saldırır, kılıcı silahına doğru savurup <b>blokla</b>!'
   };
   const camBase = new THREE.Vector3();
   function applyView(){
-    if (gameMode === 'duello'){ camBase.set(0, -.35, 0); camera.rotation.set(-.18, 0, 0); saber.position.set(0, -1.1, -1.1); }
-    else { camBase.set(0, 0, 0); camera.rotation.set(0, 0, 0); saber.position.copy(HILT); }
+    roomG.visible = gameMode !== 'duello'; runG.visible = gameMode === 'duello'; ritimG.visible = gameMode === 'ritim';
+    if (gameMode === 'duello'){ scene.fog.near = 12; scene.fog.far = 36; camera.far = 40; resetRunner(); }
+    else {
+      scene.fog.near = 16; scene.fog.far = 40; camera.far = 100;
+      camBase.set(0, 0, 0); camera.rotation.set(0, 0, 0); saber.position.copy(HILT);
+      dl.position.set(3, 8, 2); dl.target.position.set(0, -2, -8);
+    }
+    camera.updateProjectionMatrix();
     camera.position.copy(camBase); updateBlade(); updateBlade();
   }
   function chooseMode(m){
@@ -429,6 +439,7 @@ async function startDisplay(){
     $('modeTxt').innerHTML = MODE_TXT[m];
     if (inputMode === 'mouse' || (conn && conn.open)) show('ready'); else setupPairing();
   }
+  $('mode1').onclick = () => chooseMode('ritim');
   $('mode2').onclick = () => chooseMode('lazer');
   $('mode3').onclick = () => chooseMode('duello');
   $('noPhone').onclick = () => {
@@ -438,7 +449,7 @@ async function startDisplay(){
   };
   $('startBtn').onclick = () => { initAudio(); startGame(); };
   $('againBtn').onclick = () => { initAudio(); startGame(); };
-  $('menuBtn').onclick = () => { show('lobby'); showBest(); };
+  $('menuBtn').onclick = () => { stopMusic(); show('lobby'); showBest(); };
 
   // ---------- Oyun ----------
   let state = 'menu', score = 0, hp_ = 5, combo = 0, shake = 0, spawnCd = 0;
@@ -538,22 +549,27 @@ async function startDisplay(){
   function clearAll(){
     while (bolts.length) removeBolt(bolts.length - 1);
     while (drones.length){ const d = drones.pop(); scene.remove(d.g); d.eyeMat.dispose(); }
-    clearDuel();
+    clearDuel(); clearRunner(); clearRitim();
   }
   function startGame(){
-    clearAll(); score = 0; hp_ = 5; combo = 0; spawnCd = 0.5; duelSpawnCd = .8; applyView();
+    clearAll(); score = 0; hp_ = 5; combo = 0; spawnCd = 0.5; applyView();
+    if (gameMode === 'ritim') startRitim();
     state = 'play'; show(null); $('hud').style.display = 'flex';
   }
   function gameOver(){
     state = 'over'; clearAll(); $('hud').style.display = 'none';
-    if (score > best[gameMode]){ best[gameMode] = score; try{ localStorage.setItem(gameMode === 'lazer' ? 'isin_best' : 'isin_best_duello', score); }catch(e){} }
+    stopMusic();
+    if (score > best[gameMode]){ best[gameMode] = score; try{ localStorage.setItem(BEST_KEY[gameMode], score); }catch(e){} }
     $('overTxt').textContent = 'Skor: ' + score + '   ·   En iyi: ' + best[gameMode];
     show('over');
   }
 
   function updateGame(dt, now){
-    if (gameMode === 'duello') updateDuel(dt); else updateLazer(dt, now);
-    $('hScore').textContent = score + (combo > 1 ? '  x' + Math.min(combo, 5) : '');
+    if (gameMode === 'duello') updateRunner(dt); else if (gameMode === 'ritim') updateRitim(dt); else updateLazer(dt, now);
+    if (state !== 'play') return;
+    if (gameMode === 'ritim') $('hScore').textContent = score + '  x' + Math.min(1 + Math.floor(combo / 8), 4) + (combo > 1 ? '  ·  ' + combo + ' kombo' : '');
+    else if (gameMode === 'duello') $('hScore').textContent = score + '  ·  ' + Math.floor(run.dist) + ' m' + (combo > 1 ? '  ·  x' + Math.min(combo, 10) : '');
+    else $('hScore').textContent = score + (combo > 1 ? '  x' + Math.min(combo, 5) : '');
     $('hHp').textContent = '❤'.repeat(Math.max(hp_, 0));
     $('hPing').textContent = inputMode === 'phone' ? (ping != null ? ping + ' ms · ' : '') + rxHz + ' Hz' : '';
   }
@@ -605,7 +621,6 @@ async function startDisplay(){
   //                       DÜELLO
   // =====================================================
   const enemies = [], debris = [];
-  const SLOTS = [{ x: 0, z: -2.0, f: null }, { x: -0.8, z: -2.15, f: null }, { x: 0.8, z: -2.15, f: null }];
   const FT = {
     er:     { color: 0xe5484d, hp: 1, s: 1.0,  speed: 1.3, wind: .8,  strike: .22, weapon: 'sopa',   pts: 100 },
     hizli:  { color: 0xf5a524, hp: 1, s: .9,   speed: 2.1, wind: .55, strike: .16, weapon: 'hancer', pts: 120 },
@@ -755,27 +770,13 @@ async function startDisplay(){
     f.body.position.set(0, P.bob, P.lunge);
   }
 
-  function spawnFighter(){
-    const free = SLOTS.filter(s => !s.f); if (!free.length) return;
-    const slot = free[Math.floor(Math.random() * free.length)];
-    const lvl = level(), pool = ['er'];
-    if (lvl >= 2) pool.push('hizli');
-    if (lvl >= 3) pool.push('kalkan');
-    if (lvl >= 4) pool.push('dev');
-    const f = buildFighter(pool[Math.floor(Math.random() * pool.length)]);
-    f.slot = slot; slot.f = f;
-    f.pos.set(rand(-3, 3), -2, rand(-14, -11));
-    f.atkCd = rand(.5, 1.2);
-    scene.add(f.root); enemies.push(f);
-  }
-
   // ---- parçalara ayrılma (plastik oyuncak gibi) ----
   function detach(o, f, dir, power){
     o.updateMatrixWorld(true);
     scene.attach(o);
     const c = new THREE.Vector3(); o.getWorldPosition(c);
     const out = c.sub(f.root.position); out.y = 0; out.normalize();
-    debris.push({ o, f, s0: o.scale.clone(), life: rand(2.6, 3.4),
+    debris.push({ o, f, s0: o.scale.clone(), life: rand(2.6, 3.4), floor: f.floorY ?? -2,
       v: new THREE.Vector3().addScaledVector(dir, rand(1, 2.5) * power).addScaledVector(out, rand(.8, 2)).add(new THREE.Vector3(0, rand(1.5, 3.2), 0)),
       w: new THREE.Vector3(rand(-9, 9), rand(-9, 9), rand(-9, 9)) });
     f.left++;
@@ -794,8 +795,9 @@ async function startDisplay(){
       if (d.life < .6) d.o.scale.copy(d.s0).multiplyScalar(Math.max(d.life / .6, .001));
       d.o.updateMatrixWorld(true);
       dbox.setFromObject(d.o);
-      if (dbox.min.y < -2){
-        d.o.position.y += -2 - dbox.min.y;
+      const fl = gameMode === 'duello' && Math.abs(d.o.position.x) > 1.6 ? -80 : d.floor;
+      if (dbox.min.y < fl){
+        d.o.position.y += fl - dbox.min.y;
         if (d.v.y < 0) d.v.y *= -.3;
         d.v.x *= .8; d.v.z *= .8; d.w.multiplyScalar(.75);
       }
@@ -809,22 +811,20 @@ async function startDisplay(){
     for (const d of debris){ scene.remove(d.o); owners.add(d.f); }
     debris.length = 0;
     owners.forEach(f => f.mats.forEach(m => m.dispose()));
-    SLOTS.forEach(s => s.f = null);
   }
 
   const wA = new THREE.Vector3(), wB = new THREE.Vector3(), capA = new THREE.Vector3(), capB = new THREE.Vector3(), cutDir = new THREE.Vector3();
-  let duelSpawnCd = 0;
 
   function parry(f, pt){
     f.state = 'stagger'; f.t = 0;
-    f.kb.set(f.pos.x, 0, f.pos.z).normalize().multiplyScalar(1.8);
+    f.kb.set(f.pos.x, 0, f.pos.z - pz()).normalize().multiplyScalar(1.8);
     combo++; score += 25 * Math.min(combo, 5);
     sparks(pt, 0xffc020, 22, 4); sparks(pt, 0x1a8cff, 10, 2);
     beep(1800, 900, .15, 'square', .12); beep(2600, 1400, .1, 'triangle', .08);
     send({ t: 'hit' });
   }
   function kill(f){
-    f.alive = false; f.slot.f = null; enemies.splice(enemies.indexOf(f), 1);
+    f.alive = false; enemies.splice(enemies.indexOf(f), 1);
     f.eyeMat.emissive.setRGB(0, 0, 0); f.wMat.emissive.setRGB(0, 0, 0); f.mat.emissive.setScalar(0);
     const chest = new THREE.Vector3(); f.spine.getWorldPosition(chest);
     sparks(chest, f.T.color, 30, 4);
@@ -837,83 +837,351 @@ async function startDisplay(){
     if (f.shield){ detach(f.shield, f, cutDir, 1.4); f.shield = null; }
     if (f.hp <= 0){ score += f.T.pts + 20 * Math.min(combo, 10); kill(f); beep(320, 60, .35, 'sawtooth', .18); return; }
     score += 20;
-    f.state = 'stagger'; f.t = 0; f.kb.set(f.pos.x, 0, f.pos.z).normalize().multiplyScalar(2.2);
+    f.state = 'stagger'; f.t = 0; f.kb.set(f.pos.x, 0, f.pos.z - pz()).normalize().multiplyScalar(2.2);
     f.eyeMat.emissive.setRGB(0, 0, 0); f.wMat.emissive.setRGB(0, 0, 0);
     beep(700, 200, .15, 'sawtooth', .12);
   }
 
-  function updateDuel(dt){
-    const lvl = level();
-    const maxE = lvl < 2 ? 1 : lvl < 4 ? 2 : 3;
-    duelSpawnCd -= dt;
-    if (enemies.length < maxE && duelSpawnCd <= 0){ spawnFighter(); duelSpawnCd = 1.6; }
-    const maxAtk = lvl >= 5 ? 2 : 1;
-    let attacking = enemies.filter(f => f.state === 'windup' || f.state === 'strike').length;
-    const tipSpeed = bB.distanceTo(pB) / Math.max(dt, 1e-3);
-    cutDir.subVectors(bB, pB).normalize();
+  // =====================================================
+  //            DÜELLO = OTOMATİK KOŞU + KESME
+  // =====================================================
+  const runG = new THREE.Group(); runG.visible = false; scene.add(runG);
+  const run = { z: 0, dist: 0, speed: 0, segs: [], genZ: 0, genY: -2, air: false, landT: 0, step: 0, delta: new THREE.Vector3() };
+  const platMat = new THREE.MeshStandardMaterial({ color: 0xf4f6f9, roughness: .85 });
+  const edgeMatR = new THREE.MeshStandardMaterial({ color: 0xc3cad5, roughness: .7 });
+  const decoMat = new THREE.MeshStandardMaterial({ color: 0xe3e8ef, roughness: .9 });
+  const warnMat = new THREE.MeshStandardMaterial({ color: 0x2b303a, roughness: .6 });
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const runLevel = () => 1 + Math.floor(run.dist / 150);
+  const pz = () => gameMode === 'duello' ? run.z : 0;
+
+  function addBox(x, y, z, sx, sy, sz, mat, list, shadow){
+    const m = new THREE.Mesh(unitBox, mat); m.scale.set(sx, sy, sz); m.position.set(x, y, z);
+    m.receiveShadow = true; m.castShadow = !!shadow; runG.add(m); list.push(m); return m;
+  }
+  function platform(z0, z1, top, list){
+    const len = z0 - z1, cz = (z0 + z1) / 2;
+    addBox(0, top - .4, cz, 3.2, .8, len, platMat, list);
+    for (const s of [-1, 1]) addBox(s * 1.6, top - .01, cz, .1, .05, len, edgeMatR, list);
+    addBox(0, top - 7, cz, .9, 12.4, Math.min(len * .35, 1.4), decoMat, list);        // ayak
+  }
+  function decorate(z0, z1, top, list){
+    if (Math.random() < .55){                                                        // kemer kapı
+      const z = rand(z1 + 1, z0 - 1);
+      for (const s of [-1, 1]) addBox(s * 1.95, top + 1.4, z, .3, 2.8, .3, decoMat, list, true);
+      addBox(0, top + 2.95, z, 4.2, .3, .4, decoMat, list, true);
+    }
+    for (let i = 0; i < 3; i++){                                                     // yanlarda süzülen bloklar
+      const s = Math.random() < .5 ? -1 : 1, k = rand(.6, 2);
+      const b = addBox(s * rand(3.5, 8), top + rand(-1.5, 4), rand(z1, z0), k, k, k, decoMat, list);
+      b.rotation.set(rand(0, 1), rand(0, 1), 0);
+    }
+  }
+  function placeFighter(type, x, top, z){
+    const f = buildFighter(type);
+    f.pos.set(x, top, z); f.home = f.pos.clone(); f.floorY = top;
+    f.state = 'idle'; f.duel = x === 0; f.pose = { ...P_READY };
+    f.root.position.set(x, top, z); applyPose(f, f.pose);
+    scene.add(f.root); enemies.push(f);
+  }
+  function populate(z0, z1, top, first){
+    const lvl = runLevel();
+    let duelUsed = false;
+    for (let z = z0 - (first ? 12 : 4); z > z1 + 2; z -= rand(4, 6)){
+      if (lvl >= 2 && !duelUsed && Math.random() < .2){                              // düello rakibi (yolu keser)
+        duelUsed = true;
+        placeFighter(lvl >= 3 && Math.random() < .4 ? 'dev' : 'kalkan', 0, top, z);
+        z -= 2; continue;
+      }
+      const sides = lvl >= 2 && Math.random() < .3 ? [-1, 1] : [Math.random() < .5 ? -1 : 1];
+      for (const s of sides) placeFighter(lvl >= 2 && Math.random() < .35 ? 'hizli' : 'er', s * .8, top, z + rand(-.4, .4));
+    }
+  }
+  function genSegment(){
+    const first = run.segs.length === 0, list = [], z0 = run.genZ, h = run.genY;
+    const len = first ? 18 : rand(10, 15);
+    platform(first ? z0 + 8 : z0, z0 - len, h, list);
+    decorate(z0, z0 - len, h, list);
+    populate(z0, z0 - len, h, first);
+    run.segs.push({ z0, z1: z0 - len, y0: h, y1: h, kind: 'run', list });
+    // zıplama bölümü
+    const jl = [], kinds = ['bosluk', 'engel'];
+    if (h < -1.4) kinds.push('yukari');
+    if (h > -3.6) kinds.push('asagi');
+    const k = kinds[Math.floor(Math.random() * kinds.length)];
+    let jlen = 2.6, ny = h;
+    if (k === 'bosluk') jlen = rand(2.2, 3.2);
+    if (k === 'engel'){ platform(z0 - len, z0 - len - jlen, h, jl); addBox(0, h + .22, z0 - len - jlen / 2, 3.0, .44, .3, warnMat, jl, true); }
+    if (k === 'yukari'){ jlen = 2.0; ny = h + .7; }
+    if (k === 'asagi'){ jlen = 2.4; ny = h - .9; }
+    run.segs.push({ z0: z0 - len, z1: z0 - len - jlen, y0: h, y1: ny, kind: 'jump', jh: .8 + Math.max(0, ny - h), list: jl });
+    run.genZ = z0 - len - jlen; run.genY = ny;
+  }
+  function segAt(z){ for (const s of run.segs) if (z <= s.z0 && z > s.z1) return s; return run.segs[run.segs.length - 1]; }
+  function pathY(z){
+    const s = segAt(z); if (!s) return -2;
+    if (s.kind === 'run') return s.y0;
+    const t = (s.z0 - z) / (s.z0 - s.z1);
+    return s.y0 + (s.y1 - s.y0) * t + s.jh * 4 * t * (1 - t);
+  }
+  function clearRunner(){
+    for (const s of run.segs) for (const m of s.list) runG.remove(m);
+    run.segs.length = 0; run.z = 0; run.dist = 0; run.speed = 0; run.genZ = 0; run.genY = -2; run.air = false; run.landT = 0; run.step = 0;
+    run.delta.set(0, 0, 0);
+  }
+  function placeRig(bobY){
+    const y = pathY(run.z);
+    camBase.set(0, y + 1.65 + bobY, run.z);
+    camera.rotation.set(-.18, 0, run.air ? 0 : Math.sin(run.dist * 1.3) * .008);
+    saber.position.set(0, camBase.y - .75, run.z - 1.1);
+    dl.position.set(3, y + 10, run.z + 2); dl.target.position.set(0, y, run.z - 8);
+  }
+  function resetRunner(){
+    clearRunner();
+    while (run.genZ > -42) genSegment();
+    placeRig(0); camera.position.copy(camBase);
+  }
+  const prevSaber = new THREE.Vector3();
+  function moveRunner(dt){
+    // önümüzde düello rakibi varsa yavaşla ve dur
+    let vmax = 4 + Math.min(run.dist / 250, 2.5);
+    for (const f of enemies){
+      if (!f.alive || !f.duel) continue;
+      const stopZ = f.pos.z + 2.0 + (f.T.s - 1) * .6, d = run.z - stopZ;
+      if (d > -.5 && d < 14) vmax = Math.min(vmax, Math.sqrt(2 * 7 * Math.max(d, 0)));
+    }
+    run.speed += (vmax - run.speed) * Math.min(1, dt * (vmax < run.speed ? 8 : 2));
+    run.z -= run.speed * dt; run.dist += run.speed * dt;
+    const s = segAt(run.z);
+    if (s && s.kind === 'jump' && !run.air){ run.air = true; beep(260, 520, .18, 'sine', .07); }
+    if (s && s.kind === 'run' && run.air){ run.air = false; run.landT = .22; beep(140, 60, .12, 'sine', .16); }
+    const ph = run.dist * 2.6, st = Math.floor(ph / Math.PI);
+    if (!run.air && st !== run.step && run.speed > 1){ run.step = st; beep(90, 55, .05, 'triangle', .05); }
+    run.landT = Math.max(0, run.landT - dt);
+    const bob = (run.air ? 0 : Math.abs(Math.sin(ph)) * .05 * Math.min(1, run.speed / 4)) - Math.sin(run.landT / .22 * Math.PI) * .09;
+    prevSaber.copy(saber.position);
+    placeRig(bob);
+    run.delta.subVectors(saber.position, prevSaber);
+    while (run.genZ > run.z - 42) genSegment();
+    while (run.segs.length && run.segs[0].z1 > run.z + 8){ const o = run.segs.shift(); for (const m of o.list) runG.remove(m); }
+  }
+
+  const rel = new THREE.Vector3();
+  function updateRunner(dt){
+    const lvl = runLevel();
+    rel.subVectors(bB, pB).sub(run.delta);
+    const tipSpeed = rel.length() / Math.max(dt, 1e-3);
+    cutDir.copy(rel).normalize();
+    let duelBusy = enemies.some(f => f.duel && (f.state === 'windup' || f.state === 'strike'));
 
     for (let i = enemies.length - 1; i >= 0; i--){
-      const f = enemies[i], T = f.T;
+      const f = enemies[i], T = f.T, relZ = f.pos.z - run.z;
+      if (relZ > 4){ scene.remove(f.root); f.alive = false; enemies.splice(i, 1); if (f.left <= 0) f.mats.forEach(m => m.dispose()); continue; }
       f.t += dt; f.hitCd -= dt; f.flash = Math.max(0, f.flash - dt * 4);
-      const tx = f.slot.x, tz = f.slot.z - (T.s - 1) * .5;
-      if (f.state === 'walk'){
-        const dx = tx - f.pos.x, dz = tz - f.pos.z, dist = Math.hypot(dx, dz);
-        const step = Math.min(dist, T.speed * dt);
-        if (dist > 1e-4){ f.pos.x += dx / dist * step; f.pos.z += dz / dist * step; }
-        f.ph += dt * T.speed * 6.5 / T.s;
-        f.pose = lp(f.pose, walkPose(f.ph), 1 - Math.exp(-dt * 12));
-        if (dist < .03){ f.state = 'ready'; f.t = 0; }
-      } else if (f.state === 'ready'){
-        const P = { ...P_READY }; P.bob += Math.sin(f.t * 3.2) * .012; P.sy += Math.sin(f.t * 1.7) * .06;
-        f.pose = lp(f.pose, P, 1 - Math.exp(-dt * 10));
-        f.atkCd -= dt * (1 + lvl * .12);
-        if (f.atkCd <= 0 && attacking < maxAtk){
-          f.state = 'windup'; f.t = 0; attacking++; beep(180, 300, .3, 'triangle', .1);
-          f.aim = [-.55, .25, 1.25][Math.floor(Math.random() * 3)];        // sol / orta / sağ
-          f.pW = { ...P_WINDUP, sy: -f.aim * .6 }; f.pS = { ...P_STRIKE, sy: f.aim };
+      const idleP = () => { const P = { ...P_READY }; P.bob += Math.sin(f.t * 3.2 + f.ph) * .012; P.sy += Math.sin(f.t * 1.7 + f.ph) * .06; return P; };
+      const startWindup = aim => {
+        f.state = 'windup'; f.t = 0; f.aim = aim; beep(180, 300, .3, 'triangle', .1);
+        f.pW = { ...P_WINDUP, sy: -aim * .6 }; f.pS = { ...P_STRIKE, sy: aim };
+      };
+      if (f.duel && f.state === 'idle' && relZ > -3.4) { f.state = 'ready'; f.t = 0; f.atkCd = .8; }
+
+      if (f.state === 'idle' || f.state === 'done'){
+        f.pose = lp(f.pose, idleP(), 1 - Math.exp(-dt * 8));
+        if (f.state === 'idle' && !f.duel){                       // yanından geçerken saldırır
+          const lead = run.speed * T.wind + 1.05;
+          if (relZ > -lead && relZ < -.6) startWindup(.25);
         }
+      } else if (f.state === 'ready'){                              // düello
+        f.pos.lerp(f.home, 1 - Math.exp(-dt * 3));
+        f.pose = lp(f.pose, idleP(), 1 - Math.exp(-dt * 10));
+        f.atkCd -= dt * (1 + lvl * .1);
+        if (f.atkCd <= 0 && !duelBusy){ startWindup([-.55, .25, 1.25][Math.floor(Math.random() * 3)]); duelBusy = true; }
       } else if (f.state === 'windup'){
         const u = Math.min(f.t / T.wind, 1);
         f.pose = lp(P_READY, f.pW, ease(u));
         f.eyeMat.emissive.setRGB(u, 0, 0); f.wMat.emissive.setRGB(u * .6, u * .05, u * .05);
-        if (u >= 1){ f.state = 'strike'; f.t = 0; f.prevTip = null; }
+        if (u >= 1 && (f.duel || relZ > -1.05)){ f.state = 'strike'; f.t = 0; f.prevTip = null; }
       } else if (f.state === 'strike'){
         f.pose = lp(f.pW, f.pS, Math.min(f.t / T.strike, 1) ** 2);
       } else if (f.state === 'recover'){
         f.pose = lp(f.pose, P_READY, 1 - Math.exp(-dt * 6));
-        if (f.t > .55){ f.state = 'ready'; f.t = 0; f.atkCd = rand(1.4, 2.6); }
+        if (f.t > .55){ f.state = f.duel ? 'ready' : 'done'; f.t = 0; f.atkCd = rand(1.2, 2.2); }
       } else if (f.state === 'stagger'){
         f.pos.addScaledVector(f.kb, dt); f.kb.multiplyScalar(Math.max(0, 1 - dt * 5));
         f.pose = lp(f.pose, P_STAGGER, 1 - Math.exp(-dt * 14));
-        if (f.t > .6){ f.state = 'walk'; f.t = 0; f.atkCd = rand(.8, 1.6); }
+        if (f.t > .6){ f.state = f.duel ? 'ready' : 'done'; f.t = 0; f.atkCd = rand(.8, 1.6); }
       }
       if (f.state !== 'windup' && f.state !== 'strike'){ f.eyeMat.emissive.multiplyScalar(.85); f.wMat.emissive.multiplyScalar(.85); }
-      if (f.shield && f.state !== 'stagger'){ // kalkanı göğsünün önünde tutar
+      if (f.shield && f.state !== 'stagger'){
         const k = 1 - Math.exp(-dt * 10);
         f.pose.lsx += (-.3 - f.pose.lsx) * k; f.pose.lsz += (.15 - f.pose.lsz) * k; f.pose.lex += (-.5 - f.pose.lex) * k;
       }
-      f.root.position.set(f.pos.x, -2, f.pos.z);
-      f.root.rotation.y = Math.atan2(-f.pos.x, -f.pos.z);
+      f.root.position.set(f.pos.x, f.floorY, f.pos.z);
+      f.root.rotation.y = Math.atan2(-f.pos.x, run.z - f.pos.z);
       applyPose(f, f.pose);
       f.mat.emissive.setScalar(f.flash * .8);
       f.root.updateMatrixWorld(true);
 
-      // savuşturma (blok)
       if (f.state === 'strike'){
         wA.set(0, 0, f.seg[0]); f.wp.localToWorld(wA);
         wB.set(0, 0, f.seg[1]); f.wp.localToWorld(wB);
         const R2 = .13 * .13, pt = f.prevTip || wB;
-        // blok için kılıcı silaha doğru SAVURMAK gerekir (sabit tutmak yetmez)
         if (tipSpeed > 1.2 && (segDist2(wA, wB, bA, bB) < R2 || segDist2(wA, wB, pA, pB) < R2 || segDist2(wA, wB, pB, bB) < R2 || segDist2(pt, wB, bA, bB) < R2)){ parry(f, c1.clone()); continue; }
         f.prevTip = (f.prevTip || new THREE.Vector3()).copy(wB);
         if (f.t >= T.strike){ f.state = 'recover'; f.t = 0; playerHit(); if (state !== 'play') return; continue; }
       }
-      // kesme (kılıç hızlı savrulursa)
-      if (tipSpeed > 2.2 && f.hitCd <= 0){
+      if (tipSpeed > 2.2 && f.hitCd <= 0 && relZ < 0){
         capA.set(0, .25, 0); f.root.localToWorld(capA);
         capB.set(0, .18, 0); f.headJ.localToWorld(capB);
         const r = .2 * T.s + .05, R2 = r * r;
         if (segDist2(bA, bB, capA, capB) < R2 || segDist2(pB, bB, capA, capB) < R2){ hitFighter(f, c1.clone()); continue; }
+      }
+    }
+  }
+
+  // =====================================================
+  //                    RİTİM KESME
+  // =====================================================
+  const RT = { bpm: 112, travel: 1.7, hitZ: -1.95, speed: 8, stepDur: 60 / 112 / 4, step: 0, stepT: 0, cStep: 0, cT: 0, start: 0, lastDir: 'up', lastX: 0, on: false };
+  const notes = [], cubes = [], halves = [];
+  const DIRS = { down: [0, -1], up: [0, 1], left: [-1, 0], right: [1, 0] };
+  const LANES_X = [-.45, 0, .45], LANES_Y = [-.6, -.15];
+  const cubeGeo = new THREE.BoxGeometry(.32, .32, .32), halfGeo = new THREE.BoxGeometry(.32, .16, .32);
+  const cubeMat = new THREE.MeshStandardMaterial({ color: 0x2a7cff, roughness: .35 });
+  const cutMat = new THREE.MeshStandardMaterial({ color: 0xdbe9ff, roughness: .6, emissive: 0x2a7cff, emissiveIntensity: .25 });
+  const badMat = new THREE.MeshStandardMaterial({ color: 0x8a919c, roughness: .6 });
+  const cubeEdge = new THREE.EdgesGeometry(cubeGeo), cubeEdgeMat = new THREE.LineBasicMaterial({ color: 0x0d3a8c });
+  const arrowGeo = (() => { const s = new THREE.Shape(); s.moveTo(-.11, .05); s.lineTo(.11, .05); s.lineTo(0, -.075); s.closePath(); return new THREE.ShapeGeometry(s); })();
+  const dotGeo = new THREE.CircleGeometry(.055, 24), markMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const topMats = [cubeMat, cubeMat, cubeMat, cutMat, cubeMat, cubeMat], botMats = [cubeMat, cubeMat, cutMat, cubeMat, cubeMat, cubeMat];
+  const ritimG = new THREE.Group(); ritimG.visible = false; scene.add(ritimG);
+  const hitLine = new THREE.Mesh(new THREE.BoxGeometry(1.7, .012, .04), new THREE.MeshBasicMaterial({ color: 0x2a7cff, transparent: true, opacity: .3 }));
+  hitLine.position.set(0, -1.99, RT.hitZ); ritimG.add(hitLine);
+  for (const x of LANES_X){ const l = new THREE.Mesh(new THREE.BoxGeometry(.015, .006, 14), new THREE.MeshBasicMaterial({ color: 0xbfd0ea })); l.position.set(x, -1.995, RT.hitZ - 7); ritimG.add(l); }
+
+  // --- müzik (kodla üretilir) ---
+  let master = null, noiseBuf = null;
+  function musicInit(){
+    initAudio(); if (!actx) return false;
+    if (!master){
+      master = actx.createGain(); master.connect(actx.destination);
+      noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+      const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    master.gain.cancelScheduledValues(actx.currentTime); master.gain.setValueAtTime(.5, actx.currentTime);
+    return true;
+  }
+  function stopMusic(){ RT.on = false; if (master && actx){ master.gain.cancelScheduledValues(actx.currentTime); master.gain.setTargetAtTime(0, actx.currentTime, .05); } }
+  function env(g, t, peak, dec){ g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + .006); g.gain.exponentialRampToValueAtTime(.0001, t + dec); }
+  function kick(t){ const o = actx.createOscillator(), g = actx.createGain(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + .14); env(g, t, .9, .28); o.connect(g).connect(master); o.start(t); o.stop(t + .3); }
+  function noiseHit(t, type, freq, peak, dec){ const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain(); s.buffer = noiseBuf; f.type = type; f.frequency.value = freq; env(g, t, peak, dec); s.connect(f).connect(g).connect(master); s.start(t, Math.random() * .5); s.stop(t + dec + .02); }
+  function tone(t, type, freq, peak, dec, lpf){
+    const o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (lpf){ const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpf; o.connect(f).connect(g); } else o.connect(g);
+    g.connect(master); env(g, t, peak, dec); o.start(t); o.stop(t + dec + .02);
+  }
+  const ROOT = [110, 87.31, 130.81, 98];                                   // Am F C G
+  const CHORD = [[440, 523.25, 659.25], [349.23, 440, 523.25], [523.25, 659.25, 783.99], [392, 493.88, 587.33]];
+  function playStep(step, t){
+    const bar = Math.floor(step / 16), pos = step % 16, ch = bar % 4, inten = Math.min(4, 1 + Math.floor(Math.max(0, bar - 2) / 8));
+    if (pos % 4 === 0) kick(t);
+    if (pos === 4 || pos === 12){ noiseHit(t, 'bandpass', 1800, .35, .16); tone(t, 'triangle', 190, .14, .08); }
+    if (pos % 2 === 0) noiseHit(t, 'highpass', 7000, pos % 4 === 2 ? .12 : .05, pos % 4 === 2 ? .09 : .04);
+    if (pos % 2 === 0) tone(t, 'sawtooth', ROOT[ch] * (pos % 8 === 6 ? 2 : 1), .16, RT.stepDur * 1.8, 520);
+    if (pos === 0) for (const f of CHORD[ch]) tone(t, 'triangle', f / 2, .025, RT.stepDur * 15);
+    if (bar >= 2){
+      tone(t, 'square', CHORD[ch][pos % 3] * (pos % 8 < 4 ? 1 : 2), .035, RT.stepDur * .9, 2400);
+      if (inten >= 3 && pos % 4 === 0) tone(t, 'square', CHORD[ch][(pos / 4) % 3] * 2, .03, RT.stepDur * 2, 3000);
+    }
+  }
+  function addNote(t, second){
+    let dir;
+    if (Math.random() < .12) dir = 'dot';
+    else if (RT.lastDir === 'down' && Math.random() < .6) dir = 'up';
+    else if (RT.lastDir === 'up' && Math.random() < .6) dir = 'down';
+    else dir = ['down', 'up', 'left', 'right'][Math.floor(Math.random() * 4)];
+    let x = LANES_X[Math.floor(Math.random() * 3)];
+    if (second){ x = RT.lastX === 0 ? LANES_X[Math.random() < .5 ? 0 : 2] : -RT.lastX; dir = RT.lastDir; }
+    else { RT.lastX = x; if (dir !== 'dot') RT.lastDir = dir; }
+    const y = (dir === 'up' || dir === 'down') ? LANES_Y[Math.random() < .7 ? 0 : 1] : LANES_Y[Math.floor(Math.random() * 2)];
+    notes.push({ t, x, y, dir });
+  }
+  function chartStep(step, t){
+    const bar = Math.floor(step / 16), pos = step % 16;
+    if (bar < 2) return;                                                    // 2 ölçü giriş
+    const inten = Math.min(4, 1 + Math.floor((bar - 2) / 8));
+    let p = 0;
+    if (pos % 4 === 0) p = pos === 0 ? .95 : .7;
+    else if (pos % 4 === 2) p = [0, 0, .2, .35, .5][inten];
+    if (Math.random() >= p) return;
+    addNote(t, false);
+    if (inten >= 3 && pos % 4 === 0 && Math.random() < .2) addNote(t, true);
+  }
+  function spawnCube(n){
+    const g = new THREE.Group();
+    const box = new THREE.Mesh(cubeGeo, cubeMat); box.castShadow = true; g.add(box);
+    g.add(new THREE.LineSegments(cubeEdge, cubeEdgeMat));
+    const mk = new THREE.Mesh(n.dir === 'dot' ? dotGeo : arrowGeo, markMat); mk.position.z = .162;
+    if (n.dir !== 'dot') mk.rotation.z = Math.atan2(DIRS[n.dir][1], DIRS[n.dir][0]) + Math.PI / 2;
+    g.add(mk); g.position.set(n.x, n.y, -20); scene.add(g);
+    cubes.push({ m: g, ...n });
+  }
+  function slice(c, vx, vy, good){
+    const sp = Math.hypot(vx, vy) || 1, dx = vx / sp, dy = vy / sp, nx = -dy, ny = dx;
+    for (const s of [1, -1]){
+      const m = new THREE.Mesh(halfGeo, good ? (s > 0 ? topMats : botMats) : badMat);
+      m.position.copy(c.m.position).add(new THREE.Vector3(nx * .08 * s, ny * .08 * s, 0));
+      m.rotation.z = Math.atan2(ny, nx) - Math.PI / 2; m.castShadow = true; scene.add(m);
+      halves.push({ m, life: 1.2, v: new THREE.Vector3(nx * s * 1.6 + dx * .8, ny * s * 1.6 + dy * .8 + 1, RT.speed * .3), w: new THREE.Vector3(rand(-6, 6), rand(-6, 6), s * rand(4, 8)) });
+    }
+  }
+  function updateHalves(dt){
+    for (let i = halves.length - 1; i >= 0; i--){
+      const h = halves[i]; h.life -= dt; h.v.y -= 9.8 * dt;
+      h.m.position.addScaledVector(h.v, dt);
+      h.m.rotation.x += h.w.x * dt; h.m.rotation.y += h.w.y * dt; h.m.rotation.z += h.w.z * dt;
+      if (h.m.position.y < -1.9){ h.m.position.y = -1.9; h.v.y *= -.3; h.v.x *= .7; h.v.z *= .7; h.w.multiplyScalar(.7); }
+      if (h.life < .4) h.m.scale.setScalar(Math.max(h.life / .4, .001));
+      if (h.life <= 0){ scene.remove(h.m); halves.splice(i, 1); }
+    }
+  }
+  function clearRitim(){
+    for (const c of cubes) scene.remove(c.m); cubes.length = 0;
+    for (const h of halves) scene.remove(h.m); halves.length = 0;
+    notes.length = 0; stopMusic();
+  }
+  function startRitim(){
+    if (!musicInit()) return;
+    const t0 = actx.currentTime + .3;
+    Object.assign(RT, { on: true, start: t0, step: 0, stepT: t0, cStep: 0, cT: t0, lastDir: 'up', lastX: 0 });
+  }
+  function updateRitim(dt){
+    if (!actx || !RT.on) return;
+    const now = actx.currentTime;
+    while (RT.stepT < now + .15){ playStep(RT.step, RT.stepT); RT.step++; RT.stepT += RT.stepDur; }
+    while (RT.cT < now + RT.travel + .3){ chartStep(RT.cStep, RT.cT); RT.cStep++; RT.cT += RT.stepDur; }
+    while (notes.length && notes[0].t - RT.travel <= now) spawnCube(notes.shift());
+    const beat = (now - RT.start) / (RT.stepDur * 4), fr = beat - Math.floor(beat);
+    hitLine.material.opacity = beat > 0 ? .15 + .6 * Math.pow(1 - fr, 4) : .15;
+    const vx = (bB.x - pB.x) / Math.max(dt, 1e-3), vy = (bB.y - pB.y) / Math.max(dt, 1e-3), sp = Math.hypot(vx, vy);
+    for (let i = cubes.length - 1; i >= 0; i--){
+      const c = cubes[i], z = RT.hitZ - (c.t - now) * RT.speed;
+      c.m.position.set(c.x, c.y, z);
+      if (z > RT.hitZ + .9){ scene.remove(c.m); cubes.splice(i, 1); playerHit(); if (state !== 'play') return; continue; }
+      if (z < RT.hitZ - 1.2 || sp < 1.6) continue;
+      const P = c.m.position, R2 = .23 * .23;
+      if (segDist2(bA, bB, P, P) < R2 || segDist2(pA, pB, P, P) < R2 || segDist2(pB, bB, P, P) < R2){
+        scene.remove(c.m); cubes.splice(i, 1);
+        const ok = c.dir === 'dot' || (vx * DIRS[c.dir][0] + vy * DIRS[c.dir][1]) / sp > .5;
+        slice(c, vx, vy, ok);
+        if (ok){
+          combo++;
+          const mult = Math.min(1 + Math.floor(combo / 8), 4), acc = 1 - Math.min(Math.abs(now - c.t) / .25, 1);
+          score += Math.round((100 + 50 * acc) * mult);
+          if (combo % 16 === 0 && hp_ < 5) hp_++;
+          sparks(P, 0x2a7cff, 16, 3); noiseHit(now, 'highpass', 2500, .3, .12); tone(now, 'sine', 880, .12, .1);
+          send({ t: 'hit' });
+        } else { sparks(P, 0x8a919c, 10, 2); playerHit(); if (state !== 'play') return; }
       }
     }
   }
@@ -925,11 +1193,12 @@ async function startDisplay(){
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (inputMode === 'phone') targetQ.copy(rxQ);
     saber.quaternion.slerp(targetQ, inputMode === 'phone' ? 0.85 : 0.4);
+    if (state === 'play' && gameMode === 'duello') moveRunner(dt);
     updateBlade();
     const fl = .9 + Math.random() * .1;
     glow1.material.opacity = .6 * fl; glow2.material.opacity = .2 * fl;
     if (state === 'play') updateGame(dt, now);
-    updateDebris(dt);
+    updateDebris(dt); updateHalves(dt);
     for (let i = parts.length - 1; i >= 0; i--){
       const p = parts[i]; p.life -= dt;
       p.m.position.addScaledVector(p.v, dt); p.m.material.opacity = Math.max(p.life / .5, 0);
